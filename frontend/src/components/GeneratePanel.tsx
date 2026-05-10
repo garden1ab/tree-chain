@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Play, Download, AlertCircle, CheckCircle2, Clock, Loader2 } from 'lucide-react';
 import { useStore } from '../store';
-import { startGeneration, getJobStatus, estimateCost, exportJob, listJobs } from '../api';
+import { startGeneration, getJobStatus, estimateCost, exportJob, listJobs, updateCharacterConfigs } from '../api';
 import clsx from 'clsx';
 
 export default function GeneratePanel() {
@@ -33,6 +33,8 @@ export default function GeneratePanel() {
     if (!currentProject || !currentScript || !apiKey) return;
     setGenerating(true);
     try {
+      // Save character voice configs to backend before dispatching
+      await updateCharacterConfigs(currentProject.id, characterConfigs);
       const job = await startGeneration(currentProject.id, currentScript.script_id, apiKey, outputFormat);
       setActiveJob(job);
       addLog({ level: 'info', message: `Generation started — Job ${job.job_id.slice(0, 8)}` });
@@ -160,11 +162,11 @@ export default function GeneratePanel() {
             </span>
             <span className={clsx('badge', {
               'badge-yellow': activeJob.status === 'pending',
-              'badge-blue': activeJob.status === 'processing',
+              'badge-blue': activeJob.status === 'running',
               'badge-green': activeJob.status === 'completed',
               'badge-red': activeJob.status === 'failed',
             })}>
-              {activeJob.status === 'processing' && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+              {activeJob.status === 'running' && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
               {activeJob.status === 'completed' && <CheckCircle2 className="w-3 h-3 mr-1" />}
               {activeJob.status === 'failed' && <AlertCircle className="w-3 h-3 mr-1" />}
               {activeJob.status}
@@ -236,7 +238,7 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 function StatusIcon({ status }: { status: string }) {
   const cls = {
     completed: 'status-dot-active',
-    processing: 'status-dot-pending',
+    running: 'status-dot-pending',
     pending: 'status-dot-idle',
     failed: 'status-dot-error',
   }[status] || 'status-dot-idle';

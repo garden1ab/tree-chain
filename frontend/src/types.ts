@@ -49,7 +49,7 @@ export interface CharacterConfig {
 export interface GenerationJob {
   job_id: string;
   project_id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
   total_lines: number;
   completed_lines: number;
   failed_lines: number;

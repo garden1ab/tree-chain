@@ -31,22 +31,34 @@ def generate_dialogue_task(self, job_id: str, script_id: str, project_id: str,
                            normalize: bool, line_ids: list[str] | None, api_key: str | None):
     """Background task for dialogue generation."""
     import uuid
-    from app.db import async_session
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
     from app.services.generation import GenerationService
 
     async def _run():
-        async with async_session() as db:
-            service = GenerationService(db, api_key)
-            await service.run_generation(
-                job_id=uuid.UUID(job_id),
-                script_id=uuid.UUID(script_id),
-                project_id=uuid.UUID(project_id),
-                export_mode=export_mode,
-                output_format=output_format,
-                silence_ms=silence_ms,
-                normalize=normalize,
-                line_ids=[uuid.UUID(lid) for lid in line_ids] if line_ids else None,
-            )
+        # Create a fresh engine + session for this task's event loop
+        # to avoid "attached to a different loop" errors
+        task_engine = create_async_engine(
+            settings.database_url, echo=False, pool_size=5, max_overflow=5
+        )
+        task_session_factory = async_sessionmaker(
+            task_engine, class_=AsyncSession, expire_on_commit=False
+        )
+
+        try:
+            async with task_session_factory() as db:
+                service = GenerationService(db, api_key)
+                await service.run_generation(
+                    job_id=uuid.UUID(job_id),
+                    script_id=uuid.UUID(script_id),
+                    project_id=uuid.UUID(project_id),
+                    export_mode=export_mode,
+                    output_format=output_format,
+                    silence_ms=silence_ms,
+                    normalize=normalize,
+                    line_ids=[uuid.UUID(lid) for lid in line_ids] if line_ids else None,
+                )
+        finally:
+            await task_engine.dispose()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

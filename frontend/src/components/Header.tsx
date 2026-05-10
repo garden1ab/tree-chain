@@ -26,7 +26,7 @@ export default function Header() {
 
       <div className="flex-1" />
 
-      {activeJob && activeJob.status === 'processing' && (
+      {activeJob && activeJob.status === 'running' && (
         <div className="flex items-center gap-2 text-xs text-forge-400">
           <Activity className="w-3.5 h-3.5 animate-pulse" />
           <span className="font-display tracking-wide">
