@@ -1,6 +1,7 @@
 """Database engine and session factory."""
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy import text
 from app.core.config import get_settings
 from app.models.database import Base
 
@@ -20,5 +21,15 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Create all tables and types, handling concurrent worker startup gracefully."""
+    from sqlalchemy.exc import IntegrityError, ProgrammingError
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except (IntegrityError, ProgrammingError) as e:
+        # Race condition: another worker already created the enum type / tables.
+        # This is harmless — the schema is already in place.
+        if "already exists" in str(e):
+            pass
+        else:
+            raise
