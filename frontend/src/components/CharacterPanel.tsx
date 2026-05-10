@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { RefreshCw, Volume2, Save, ChevronDown, ChevronRight } from 'lucide-react';
 import { useStore } from '../store';
 import { fetchVoices, syncVoices } from '../api';
+import type { CharacterConfig } from '../types';
 import clsx from 'clsx';
 
 export default function CharacterPanel() {
@@ -73,7 +74,7 @@ interface CharacterRowProps {
   voices: ReturnType<typeof useStore.getState>['voices'];
   expanded: boolean;
   onToggle: () => void;
-  onUpdate: (u: Partial<typeof config>) => void;
+  onUpdate: (u: Partial<CharacterConfig>) => void;
 }
 
 function CharacterRow({ config, voices, expanded, onToggle, onUpdate }: CharacterRowProps) {

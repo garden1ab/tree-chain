@@ -51,7 +51,7 @@ ws_manager = ConnectionManager()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    logger.info("dialogueforge.startup", debug=settings.DEBUG)
+    logger.info("dialogueforge.startup", debug=settings.debug)
     await init_db()
     yield
     logger.info("dialogueforge.shutdown")
@@ -71,7 +71,7 @@ app = FastAPI(
 settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

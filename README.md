@@ -26,7 +26,7 @@ cp .env.example .env
 docker compose up --build
 
 # 3. Open
-# http://localhost:3000
+# http://localhost
 ```
 
 ## Architecture
