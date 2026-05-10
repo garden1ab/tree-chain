@@ -2,7 +2,7 @@
 
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -22,9 +22,13 @@ async def _get_api_key(db: AsyncSession) -> str:
     from app.core.config import get_settings
     settings = get_settings()
 
-    stored = (await db.execute(
-        select(StoredApiKey).where(StoredApiKey.is_active == True).order_by(StoredApiKey.created_at.desc())
-    )).scalar_one_or_none()
+    result = await db.execute(
+        select(StoredApiKey)
+        .where(StoredApiKey.is_active == True)
+        .order_by(StoredApiKey.created_at.desc())
+        .limit(1)
+    )
+    stored = result.scalar_one_or_none()
 
     if stored:
         return decrypt_api_key(stored.encrypted_key)
@@ -111,7 +115,13 @@ async def update_character_configs(
 # --- API Key Management ---
 @router.post("/apikey", response_model=ApiKeyResponse)
 async def add_api_key(body: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
-    """Store an encrypted ElevenLabs API key."""
+    """Store an encrypted ElevenLabs API key, deactivating any previous ones."""
+    # Deactivate all existing keys for this provider
+    await db.execute(
+        update(StoredApiKey)
+        .where(StoredApiKey.provider == body.provider, StoredApiKey.is_active == True)
+        .values(is_active=False)
+    )
     encrypted = encrypt_api_key(body.api_key)
     key = StoredApiKey(
         provider=body.provider,
