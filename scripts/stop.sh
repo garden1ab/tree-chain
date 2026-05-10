@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")"
+
+COMPOSE_CMD="docker compose"
+if ! docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD="docker-compose"
+fi
+
+echo "[DialogueForge] Stopping services …"
+$COMPOSE_CMD down
+echo "[DialogueForge] Stopped."

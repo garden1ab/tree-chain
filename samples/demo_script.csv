@@ -1,0 +1,13 @@
+Character,Dialogue
+Commander,"All units move in. We have a narrow window."
+Pilot,"Bandits at twelve o'clock! Engaging evasive maneuvers."
+Operator,"Radar contact confirmed. Three bogeys inbound."
+Commander,"Hold formation. Wait for my signal."
+Pilot,"Copy that, Commander. Holding steady."
+Operator,"Signal interference detected. Switching to backup frequency."
+Commander,"[radio] All units, go loud! Weapons free!"
+Pilot,"Fox two! Fox two! Missile away!"
+Operator,"[pause:1.5] Direct hit confirmed. Target is down."
+Commander,"Good work. All units rally at checkpoint Bravo."
+Pilot,"Acknowledged. Heading to Bravo. Fuel is getting low."
+Operator,"Patching through to command. [pause:0.5] Command, this is Overwatch. Mission success."

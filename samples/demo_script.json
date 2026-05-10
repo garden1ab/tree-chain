@@ -1,0 +1,15 @@
+{
+  "title": "Orbital Descent - Scene 1",
+  "lines": [
+    { "character": "Commander", "text": "All units, prepare for orbital insertion." },
+    { "character": "Pilot", "text": "[radio] Copy that Commander. Adjusting trajectory now." },
+    { "character": "Operator", "text": "Radar shows clear path. No debris detected." },
+    { "character": "Commander", "text": "Good. Pilot, take us in. [pause:1.5] Smooth and steady." },
+    { "character": "AI_System", "text": "[robot] Warning. Atmospheric friction exceeding nominal parameters." },
+    { "character": "Pilot", "text": "[radio] Compensating. Hull temperature is within tolerance." },
+    { "character": "Operator", "text": "Picking up a signal on the surface. [pause:0.8] Unidentified." },
+    { "character": "Commander", "text": "[angry] Can you get a fix on it?" },
+    { "character": "Operator", "text": "Working on it. Signal is… intermittent." },
+    { "character": "AI_System", "text": "[robot] Landing zone secured. Touchdown in thirty seconds." }
+  ]
+}

@@ -1,0 +1,10 @@
+Commander: All units, this is Commander Reeves. Move to waypoint Alpha.
+Pilot: Copy, Commander. ETA three minutes.
+Operator: Confirmed. I have eyes on the target zone.
+Commander: Stay sharp. Intel reports possible hostile activity in the area.
+Pilot: [radio] Understood. Dropping altitude to avoid detection.
+Operator: [pause:1.0] I'm picking up movement. Two contacts, bearing zero-nine-zero.
+Commander: [whisper] Hold position. Do not engage until I give the word.
+AI_System: [robot] Threat assessment complete. Contacts classified as non-hostile.
+Commander: Stand down. Resume approach vector.
+Pilot: Roger. Resuming course to Alpha.

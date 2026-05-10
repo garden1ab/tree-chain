@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --glow-color: 12 142 233;
+  }
+
+  body {
+    background-color: #0a0c0f;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(var(--glow-color), 0.08), transparent),
+      radial-gradient(circle at 100% 100%, rgba(var(--glow-color), 0.03), transparent);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a2f36 transparent;
+  }
+
+  *::-webkit-scrollbar { width: 6px; height: 6px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: #2a2f36; border-radius: 3px; }
+  *::-webkit-scrollbar-thumb:hover { background: #3a3f46; }
+}
+
+@layer components {
+  .panel {
+    @apply bg-surface-900/60 border border-surface-800/60 rounded-xl backdrop-blur-sm;
+  }
+
+  .panel-header {
+    @apply px-4 py-3 border-b border-surface-800/60 flex items-center justify-between;
+  }
+
+  .panel-title {
+    @apply font-display text-xs font-semibold uppercase tracking-widest text-surface-400;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-forge-600 hover:bg-forge-500 text-white rounded-lg text-sm font-medium
+           transition-all duration-200 shadow-lg shadow-forge-600/20 hover:shadow-forge-500/30
+           active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-surface-800 hover:bg-surface-700 text-surface-200 rounded-lg text-sm font-medium
+           transition-all duration-200 border border-surface-700 hover:border-surface-600
+           active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply px-3 py-1.5 text-surface-400 hover:text-surface-200 hover:bg-surface-800/60 rounded-lg text-sm
+           transition-all duration-200 active:scale-[0.98];
+  }
+
+  .input-field {
+    @apply w-full bg-surface-900 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-100
+           placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-forge-600/50
+           focus:border-forge-600 transition-all duration-200;
+  }
+
+  .slider-track {
+    @apply appearance-none w-full h-1.5 bg-surface-700 rounded-full outline-none;
+  }
+
+  .slider-track::-webkit-slider-thumb {
+    @apply appearance-none w-4 h-4 bg-forge-500 rounded-full cursor-pointer shadow-lg
+           shadow-forge-500/30 hover:bg-forge-400 transition-colors;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium;
+  }
+
+  .badge-blue { @apply bg-forge-600/20 text-forge-400; }
+  .badge-green { @apply bg-emerald-600/20 text-emerald-400; }
+  .badge-yellow { @apply bg-amber-600/20 text-amber-400; }
+  .badge-red { @apply bg-red-600/20 text-red-400; }
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-dot-active { @apply bg-emerald-400 shadow-lg shadow-emerald-400/40; }
+  .status-dot-pending { @apply bg-amber-400 shadow-lg shadow-amber-400/40; }
+  .status-dot-error { @apply bg-red-400 shadow-lg shadow-red-400/40; }
+  .status-dot-idle { @apply bg-surface-600; }
+}
