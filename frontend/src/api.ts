@@ -33,7 +33,7 @@ export async function syncVoices(apiKey: string): Promise<VoiceInfo[]> {
 
 export async function getCharacterConfigs(projectId: string): Promise<CharacterConfig[]> {
   const { data } = await api.get(`/voices/configs/${projectId}`);
-  return data.configs;
+  return data;
 }
 
 export async function updateCharacterConfigs(projectId: string, configs: CharacterConfig[]) {
@@ -42,18 +42,18 @@ export async function updateCharacterConfigs(projectId: string, configs: Charact
 }
 
 export async function saveApiKey(key: string, label: string) {
-  const { data } = await api.post('/voices/apikey', { key, label });
+  const { data } = await api.post('/voices/apikey', { api_key: key, label });
   return data;
 }
 
 export async function validateApiKey(key: string): Promise<boolean> {
-  const { data } = await api.post('/voices/apikey/validate', { key });
+  const { data } = await api.post('/voices/apikey/validate', { api_key: key });
   return data.valid;
 }
 
 export async function listApiKeys() {
   const { data } = await api.get('/voices/apikeys');
-  return data.keys;
+  return data;
 }
 
 export async function deleteApiKey(keyId: string) {
@@ -80,12 +80,12 @@ export async function getJobStatus(jobId: string): Promise<GenerationJob> {
 
 export async function getJobLines(jobId: string): Promise<LineResult[]> {
   const { data } = await api.get(`/jobs/${jobId}/lines`);
-  return data.lines;
+  return data;
 }
 
 export async function listJobs(): Promise<GenerationJob[]> {
   const { data } = await api.get('/jobs');
-  return data.jobs;
+  return data;
 }
 
 export async function exportJob(jobId: string): Promise<Blob> {
