@@ -79,6 +79,7 @@ interface CharacterRowProps {
 
 function CharacterRow({ config, voices, expanded, onToggle, onUpdate }: CharacterRowProps) {
   const selectedVoice = voices.find((v) => v.voice_id === config.voice_id);
+  const [manualId, setManualId] = useState(false);
 
   return (
     <div className="panel overflow-hidden">
@@ -93,18 +94,41 @@ function CharacterRow({ config, voices, expanded, onToggle, onUpdate }: Characte
         </div>
         <span className="font-medium text-sm flex-1 text-left">{config.character_name}</span>
 
-        {/* Voice selector inline */}
-        <select
-          className="input-field w-56 text-xs"
-          value={config.voice_id}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onUpdate({ voice_id: e.target.value })}
-        >
-          <option value="">Select voice...</option>
-          {voices.map((v) => (
-            <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
-          ))}
-        </select>
+        {/* Voice selector — dropdown or manual ID input */}
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {manualId ? (
+            <input
+              type="text"
+              className="input-field w-56 text-xs font-mono"
+              placeholder="Paste voice ID..."
+              value={config.voice_id}
+              onChange={(e) => onUpdate({ voice_id: e.target.value })}
+            />
+          ) : (
+            <select
+              className="input-field w-56 text-xs"
+              value={config.voice_id}
+              onChange={(e) => onUpdate({ voice_id: e.target.value })}
+            >
+              <option value="">Select voice...</option>
+              {voices.map((v) => (
+                <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
+              ))}
+            </select>
+          )}
+          <button
+            className={clsx(
+              'px-1.5 py-1 rounded text-[10px] font-display tracking-wide uppercase shrink-0 transition-colors',
+              manualId
+                ? 'bg-forge-600/20 text-forge-400'
+                : 'bg-surface-800/50 text-surface-500 hover:text-surface-300'
+            )}
+            title={manualId ? 'Switch to dropdown' : 'Type a voice ID manually'}
+            onClick={() => setManualId(!manualId)}
+          >
+            {manualId ? 'List' : 'ID'}
+          </button>
+        </div>
 
         {/* Model selector inline */}
         <select
@@ -117,10 +141,11 @@ function CharacterRow({ config, voices, expanded, onToggle, onUpdate }: Characte
           <option value="eleven_monolingual_v1">English v1</option>
           <option value="eleven_turbo_v2_5">Turbo v2.5</option>
           <option value="eleven_turbo_v2">Turbo v2</option>
+          <option value="eleven_v3">Eleven v3</option>
         </select>
 
         <div className={clsx('badge', config.voice_id ? 'badge-green' : 'badge-yellow')}>
-          {config.voice_id ? 'Configured' : 'Unset'}
+          {config.voice_id ? (selectedVoice ? selectedVoice.name : 'Custom ID') : 'Unset'}
         </div>
       </button>
 

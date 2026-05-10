@@ -52,8 +52,8 @@ class VoiceInfo(BaseModel):
     name: str
     category: str = ""
     labels: dict = {}
-    preview_url: str = ""
-    description: str = ""
+    preview_url: Optional[str] = ""
+    description: Optional[str] = ""
 
 
 class VoiceListResponse(BaseModel):

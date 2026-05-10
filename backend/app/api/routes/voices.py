@@ -52,11 +52,11 @@ async def list_voices(db: AsyncSession = Depends(get_db)):
     voices = [
         VoiceInfo(
             voice_id=v.get("voice_id", ""),
-            name=v.get("name", "Unknown"),
-            category=v.get("category", ""),
-            labels=v.get("labels", {}),
-            preview_url=v.get("preview_url", ""),
-            description=v.get("description", ""),
+            name=v.get("name") or "Unknown",
+            category=v.get("category") or "",
+            labels=v.get("labels") or {},
+            preview_url=v.get("preview_url") or "",
+            description=v.get("description") or "",
         )
         for v in voices_raw
     ]
