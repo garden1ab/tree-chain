@@ -62,13 +62,13 @@ export async function deleteApiKey(keyId: string) {
 
 // --- Generation ---
 export async function startGeneration(
-  projectId: string, scriptId: string, apiKey: string, outputFormat: string
+  projectId: string, scriptId: string, apiKey: string, exportMode: string
 ): Promise<GenerationJob> {
   const { data } = await api.post('/generate', {
     project_id: projectId,
     script_id: scriptId,
-    api_key: apiKey,
-    output_format: outputFormat,
+    export_mode: exportMode,
+    output_format: 'wav',
   });
   return data;
 }
