@@ -64,7 +64,7 @@ async def list_voices(db: AsyncSession = Depends(get_db)):
     return VoiceListResponse(voices=voices, models=models_raw)
 
 
-@router.post("/sync")
+@router.post("/sync", response_model=VoiceListResponse)
 async def sync_voices(db: AsyncSession = Depends(get_db)):
     """Force re-sync of voices from ElevenLabs."""
     return await list_voices(db)

@@ -25,11 +25,10 @@ class ElevenLabsService:
         self.base_url = settings.elevenlabs_base_url
         self._semaphore = asyncio.Semaphore(settings.max_concurrent_generations)
 
-    def _headers(self) -> dict:
+    def _headers(self, accept: str = "application/json") -> dict:
         return {
             "xi-api-key": self.api_key,
-            "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
+            "Accept": accept,
         }
 
     @retry(
@@ -62,7 +61,10 @@ class ElevenLabsService:
             }
 
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, json=payload, headers=self._headers())
+                response = await client.post(
+                    url, json=payload,
+                    headers=self._headers(accept="audio/mpeg"),
+                )
 
                 if response.status_code == 429:
                     logger.warning("elevenlabs_rate_limited", voice_id=voice_id)
@@ -78,33 +80,27 @@ class ElevenLabsService:
     async def list_voices(self) -> list[dict]:
         """Fetch available voices from ElevenLabs."""
         url = f"{self.base_url}/voices"
-        headers = {**self._headers(), "Accept": "application/json"}
-
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=self._headers())
             if response.status_code != 200:
-                raise ElevenLabsError(f"Failed to fetch voices: {response.status_code}")
+                raise ElevenLabsError(f"Failed to fetch voices: {response.status_code} - {response.text[:200]}")
             data = response.json()
             return data.get("voices", [])
 
     async def list_models(self) -> list[dict]:
         """Fetch available models."""
         url = f"{self.base_url}/models"
-        headers = {**self._headers(), "Accept": "application/json"}
-
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=self._headers())
             if response.status_code != 200:
-                raise ElevenLabsError(f"Failed to fetch models: {response.status_code}")
+                raise ElevenLabsError(f"Failed to fetch models: {response.status_code} - {response.text[:200]}")
             return response.json()
 
     async def get_subscription_info(self) -> dict:
         """Get subscription/usage info for key validation."""
         url = f"{self.base_url}/user/subscription"
-        headers = {**self._headers(), "Accept": "application/json"}
-
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=self._headers())
             if response.status_code != 200:
                 raise ElevenLabsError(f"Invalid API key or request failed: {response.status_code}")
             return response.json()
