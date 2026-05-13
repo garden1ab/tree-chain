@@ -72,6 +72,7 @@ class CharacterVoiceConfig(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     character_name = Column(String(255), nullable=False)
+    tts_provider = Column(String(50), default="elevenlabs")
     voice_id = Column(String(255), default="")
     model_id = Column(String(255), default="eleven_multilingual_v2")
     stability = Column(Float, default=0.5)

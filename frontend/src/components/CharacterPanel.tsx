@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, Volume2, Save, ChevronDown, ChevronRight } from 'lucide-react';
 import { useStore } from '../store';
-import { fetchVoices, syncVoices } from '../api';
+import { fetchVoices, syncVoices, listProviders, getProviderVoices } from '../api';
+import type { TTSProviderInfo, ProviderVoice } from '../api';
 import type { CharacterConfig } from '../types';
 import clsx from 'clsx';
 
@@ -9,6 +10,24 @@ export default function CharacterPanel() {
   const { characterConfigs, updateCharacterConfig, voices, setVoices, apiKey, addLog } = useStore();
   const [syncing, setSyncing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [providers, setProviders] = useState<TTSProviderInfo[]>([]);
+  const [providerVoices, setProviderVoices] = useState<Record<string, ProviderVoice[]>>({});
+
+  // Load providers on mount
+  useEffect(() => {
+    listProviders().then(setProviders).catch(() => {});
+  }, []);
+
+  // Load voices for a specific provider
+  const loadProviderVoices = async (providerName: string) => {
+    if (providerVoices[providerName]) return;
+    try {
+      const voices = await getProviderVoices(providerName);
+      setProviderVoices((prev) => ({ ...prev, [providerName]: voices }));
+    } catch {
+      addLog({ level: 'error', message: `Failed to load voices for ${providerName}` });
+    }
+  };
 
   const handleSync = async () => {
     if (!apiKey) {
@@ -58,6 +77,9 @@ export default function CharacterPanel() {
               key={config.character_name}
               config={config}
               voices={voices}
+              providers={providers}
+              providerVoices={providerVoices}
+              onLoadProviderVoices={loadProviderVoices}
               expanded={expanded === config.character_name}
               onToggle={() => setExpanded(expanded === config.character_name ? null : config.character_name)}
               onUpdate={(u) => updateCharacterConfig(config.character_name, u)}
@@ -72,48 +94,78 @@ export default function CharacterPanel() {
 interface CharacterRowProps {
   config: ReturnType<typeof useStore.getState>['characterConfigs'][0];
   voices: ReturnType<typeof useStore.getState>['voices'];
+  providers: TTSProviderInfo[];
+  providerVoices: Record<string, ProviderVoice[]>;
+  onLoadProviderVoices: (name: string) => void;
   expanded: boolean;
   onToggle: () => void;
   onUpdate: (u: Partial<CharacterConfig>) => void;
 }
 
-function CharacterRow({ config, voices, expanded, onToggle, onUpdate }: CharacterRowProps) {
-  const selectedVoice = voices.find((v) => v.voice_id === config.voice_id);
+function CharacterRow({ config, voices, providers, providerVoices, onLoadProviderVoices, expanded, onToggle, onUpdate }: CharacterRowProps) {
+  const currentProvider = config.tts_provider || 'elevenlabs';
+  const isLocal = currentProvider !== 'elevenlabs';
+  const localVoices = providerVoices[currentProvider] || [];
+  const selectedVoice = isLocal
+    ? localVoices.find((v) => v.voice_id === config.voice_id)
+    : voices.find((v) => v.voice_id === config.voice_id);
   const [manualId, setManualId] = useState(false);
+
+  // Load provider voices when provider changes
+  useEffect(() => {
+    if (isLocal) onLoadProviderVoices(currentProvider);
+  }, [currentProvider]);
 
   return (
     <div className="panel overflow-hidden">
       {/* Summary row */}
       <button
-        className="w-full px-4 py-3 flex items-center gap-4 hover:bg-surface-800/30 transition-colors"
+        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-800/30 transition-colors"
         onClick={onToggle}
       >
         {expanded ? <ChevronDown className="w-4 h-4 text-surface-500" /> : <ChevronRight className="w-4 h-4 text-surface-500" />}
         <div className="w-8 h-8 rounded-lg bg-forge-600/20 flex items-center justify-center font-display text-sm font-bold text-forge-400">
           {config.character_name[0]}
         </div>
-        <span className="font-medium text-sm flex-1 text-left">{config.character_name}</span>
+        <span className="font-medium text-sm flex-1 text-left truncate">{config.character_name}</span>
+
+        {/* Provider selector */}
+        <select
+          className="input-field w-36 text-xs"
+          value={currentProvider}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onUpdate({ tts_provider: e.target.value, voice_id: '' })}
+        >
+          {providers.map((p) => (
+            <option key={p.name} value={p.name}>{p.display_name}</option>
+          ))}
+        </select>
 
         {/* Voice selector — dropdown or manual ID input */}
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
           {manualId ? (
             <input
               type="text"
-              className="input-field w-56 text-xs font-mono"
-              placeholder="Paste voice ID..."
+              className="input-field w-44 text-xs font-mono"
+              placeholder="Paste voice ID or path..."
               value={config.voice_id}
               onChange={(e) => onUpdate({ voice_id: e.target.value })}
             />
           ) : (
             <select
-              className="input-field w-56 text-xs"
+              className="input-field w-44 text-xs"
               value={config.voice_id}
               onChange={(e) => onUpdate({ voice_id: e.target.value })}
             >
               <option value="">Select voice...</option>
-              {voices.map((v) => (
-                <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
-              ))}
+              {isLocal
+                ? localVoices.map((v) => (
+                    <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
+                  ))
+                : voices.map((v) => (
+                    <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
+                  ))
+              }
             </select>
           )}
           <button
@@ -130,19 +182,21 @@ function CharacterRow({ config, voices, expanded, onToggle, onUpdate }: Characte
           </button>
         </div>
 
-        {/* Model selector inline */}
-        <select
-          className="input-field w-48 text-xs"
-          value={config.model_id}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onUpdate({ model_id: e.target.value })}
-        >
-          <option value="eleven_multilingual_v2">Multilingual v2</option>
-          <option value="eleven_monolingual_v1">English v1</option>
-          <option value="eleven_turbo_v2_5">Turbo v2.5</option>
-          <option value="eleven_turbo_v2">Turbo v2</option>
-          <option value="eleven_v3">Eleven v3</option>
-        </select>
+        {/* Model selector — only relevant for ElevenLabs */}
+        {currentProvider === 'elevenlabs' && (
+          <select
+            className="input-field w-40 text-xs"
+            value={config.model_id}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onUpdate({ model_id: e.target.value })}
+          >
+            <option value="eleven_multilingual_v2">Multilingual v2</option>
+            <option value="eleven_monolingual_v1">English v1</option>
+            <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+            <option value="eleven_turbo_v2">Turbo v2</option>
+            <option value="eleven_v3">Eleven v3</option>
+          </select>
+        )}
 
         <div className={clsx('badge', config.voice_id ? 'badge-green' : 'badge-yellow')}>
           {config.voice_id ? (selectedVoice ? selectedVoice.name : 'Custom ID') : 'Unset'}

@@ -31,6 +31,7 @@ class ScriptUploadResponse(BaseModel):
 # --- Character Voice ---
 class CharacterVoiceConfigSchema(BaseModel):
     character_name: str
+    tts_provider: str = "elevenlabs"
     voice_id: str = ""
     model_id: str = "eleven_multilingual_v2"
     stability: float = Field(0.5, ge=0.0, le=1.0)

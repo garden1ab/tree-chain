@@ -53,6 +53,9 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("dialogueforge.startup", debug=settings.debug)
     await init_db()
+    # Register all TTS providers
+    from app.services.tts_providers import init_providers
+    init_providers()
     yield
     logger.info("dialogueforge.shutdown")
 
@@ -81,13 +84,14 @@ app.add_middleware(
 # Register routers
 # ---------------------------------------------------------------------------
 
-from app.api.routes import scripts, voices, generation, projects, effects  # noqa: E402
+from app.api.routes import scripts, voices, generation, projects, effects, providers  # noqa: E402
 
 app.include_router(scripts.router, prefix="/api")
 app.include_router(voices.router, prefix="/api")
 app.include_router(generation.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(effects.router, prefix="/api")
+app.include_router(providers.router, prefix="/api")
 
 # ---------------------------------------------------------------------------
 # Health & info

@@ -18,7 +18,7 @@ from app.models.database import (
     CachedAudio, CharacterVoiceConfig, DialogueLine, GenerationJob,
     LineResult, JobStatus, Script
 )
-from app.services.elevenlabs import ElevenLabsService
+from app.services.tts_providers import get_provider, BaseTTSProvider, TTSRequest, init_providers
 
 logger = structlog.get_logger()
 
@@ -31,8 +31,13 @@ class GenerationService:
     def __init__(self, db: AsyncSession, api_key: str | None = None):
         self.db = db
         self.settings = get_settings()
-        self.tts = ElevenLabsService(api_key)
+        self.api_key = api_key
         self.log_callbacks: list = []
+        # Ensure providers are registered (worker process may not have run startup)
+        try:
+            get_provider("elevenlabs")
+        except ValueError:
+            init_providers(api_key=api_key or "")
 
     def _log(self, level: str, message: str, **kwargs):
         entry = {"timestamp": datetime.utcnow().isoformat(), "level": level, "message": message, **kwargs}
@@ -60,7 +65,8 @@ class GenerationService:
         for line in lines:
             cfg = config_map.get(line.character_name)
             if cfg:
-                cache_key = ElevenLabsService.compute_cache_key(
+                cache_key = BaseTTSProvider.compute_cache_key(
+                    cfg.tts_provider or "elevenlabs",
                     line.text, cfg.voice_id, cfg.model_id,
                     cfg.stability, cfg.similarity_boost, cfg.style
                 )
@@ -140,9 +146,17 @@ class GenerationService:
                 await self.db.commit()
 
                 try:
+                    # Resolve TTS provider for this character
+                    provider_name = cfg.tts_provider or "elevenlabs"
+                    try:
+                        provider = get_provider(provider_name)
+                    except ValueError:
+                        # Fall back to elevenlabs
+                        provider = get_provider("elevenlabs")
+
                     # Check cache
-                    cache_key = ElevenLabsService.compute_cache_key(
-                        line.text, cfg.voice_id, cfg.model_id,
+                    cache_key = BaseTTSProvider.compute_cache_key(
+                        provider_name, line.text, cfg.voice_id, cfg.model_id,
                         cfg.stability, cfg.similarity_boost, cfg.style
                     )
                     cached = (await self.db.execute(
@@ -158,10 +172,12 @@ class GenerationService:
                                  line_number=line.line_number, character=line.character_name)
                         raw_path = cached.audio_path
                     else:
-                        # Generate via TTS
-                        self._log("info", f"Generating line {line.line_number}: {line.character_name}",
-                                 line_number=line.line_number, character=line.character_name)
-                        audio_bytes = await self.tts.generate_speech(
+                        # Generate via TTS provider
+                        self._log("info", f"Generating line {line.line_number}: {line.character_name} ({provider_name})",
+                                 line_number=line.line_number, character=line.character_name,
+                                 provider=provider_name)
+
+                        tts_request = TTSRequest(
                             text=line.text,
                             voice_id=cfg.voice_id,
                             model_id=cfg.model_id,
@@ -170,16 +186,20 @@ class GenerationService:
                             style=cfg.style,
                             use_speaker_boost=cfg.use_speaker_boost,
                         )
+                        audio_bytes = await provider.generate_speech(tts_request)
+                        audio_fmt = provider.audio_format()
 
-                        # Save raw audio (ElevenLabs returns mp3)
-                        mp3_path = raw_path.replace('.wav', '.mp3')
-                        with open(mp3_path, 'wb') as f:
-                            f.write(audio_bytes)
-
-                        # Convert to WAV
-                        seg = AudioSegment.from_file(mp3_path, format="mp3")
-                        seg.export(raw_path, format="wav")
-                        os.remove(mp3_path)
+                        # Save raw audio and convert to WAV if needed
+                        if audio_fmt == "wav":
+                            with open(raw_path, 'wb') as f:
+                                f.write(audio_bytes)
+                        else:
+                            tmp_path = raw_path.replace('.wav', f'.{audio_fmt}')
+                            with open(tmp_path, 'wb') as f:
+                                f.write(audio_bytes)
+                            seg = AudioSegment.from_file(tmp_path, format=audio_fmt)
+                            seg.export(raw_path, format="wav")
+                            os.remove(tmp_path)
 
                         # Cache it
                         self.db.add(CachedAudio(

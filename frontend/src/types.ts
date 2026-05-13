@@ -35,6 +35,7 @@ export interface VoiceInfo {
 
 export interface CharacterConfig {
   character_name: string;
+  tts_provider: string;
   voice_id: string;
   model_id: string;
   stability: number;
