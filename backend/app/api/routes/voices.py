@@ -97,6 +97,7 @@ async def update_character_configs(
         db.add(CharacterVoiceConfig(
             project_id=project_id,
             character_name=cfg.character_name,
+            tts_provider=cfg.tts_provider,
             voice_id=cfg.voice_id,
             model_id=cfg.model_id,
             stability=cfg.stability,
