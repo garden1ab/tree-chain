@@ -1,4 +1,4 @@
-"""TTS provider abstraction — swap between ElevenLabs, Kokoro, Chatterbox, XTTS, Orpheus, etc."""
+"""TTS provider abstraction — ElevenLabs (cloud), Kokoro/Piper (in-process), Chatterbox/XTTS/Orpheus (sidecar containers)."""
 
 from __future__ import annotations
 import hashlib
@@ -6,8 +6,8 @@ import asyncio
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
 
+import httpx
 import structlog
 
 logger = structlog.get_logger()
@@ -17,7 +17,6 @@ logger = structlog.get_logger()
 
 @dataclass
 class TTSVoice:
-    """A voice available from a provider."""
     voice_id: str
     name: str
     category: str = ""
@@ -28,7 +27,6 @@ class TTSVoice:
 
 @dataclass
 class TTSRequest:
-    """Parameters for a TTS generation request."""
     text: str
     voice_id: str
     model_id: str = ""
@@ -41,8 +39,6 @@ class TTSRequest:
 # ── Base class ──────────────────────────────────────────
 
 class BaseTTSProvider(ABC):
-    """Interface that all TTS providers implement."""
-
     name: str = "base"
     display_name: str = "Base Provider"
     requires_api_key: bool = False
@@ -50,21 +46,17 @@ class BaseTTSProvider(ABC):
 
     @abstractmethod
     async def generate_speech(self, request: TTSRequest) -> bytes:
-        """Generate speech audio. Returns raw audio bytes (mp3 or wav)."""
         ...
 
     @abstractmethod
     def audio_format(self) -> str:
-        """Return the format of bytes returned by generate_speech ('mp3' or 'wav')."""
         ...
 
     @abstractmethod
     async def list_voices(self) -> list[TTSVoice]:
-        """Return voices available from this provider."""
         ...
 
     async def validate(self) -> tuple[bool, str]:
-        """Check that the provider is ready (model loaded, API key valid, etc.)."""
         return True, "OK"
 
     @staticmethod
@@ -74,7 +66,7 @@ class BaseTTSProvider(ABC):
         return hashlib.sha256(raw.encode()).hexdigest()
 
 
-# ── ElevenLabs provider ────────────────────────────────
+# ── ElevenLabs (cloud API) ─────────────────────────────
 
 class ElevenLabsProvider(BaseTTSProvider):
     name = "elevenlabs"
@@ -95,7 +87,6 @@ class ElevenLabsProvider(BaseTTSProvider):
         return "mp3"
 
     async def generate_speech(self, request: TTSRequest) -> bytes:
-        import httpx
         async with self._semaphore:
             url = f"{self.base_url}/text-to-speech/{request.voice_id}"
             payload = {
@@ -109,20 +100,18 @@ class ElevenLabsProvider(BaseTTSProvider):
                 },
             }
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, json=payload, headers=self._headers(accept="audio/mpeg"))
-                if response.status_code == 429:
+                resp = await client.post(url, json=payload, headers=self._headers(accept="audio/mpeg"))
+                if resp.status_code == 429:
                     raise RuntimeError("ElevenLabs rate limited")
-                if response.status_code != 200:
-                    raise RuntimeError(f"ElevenLabs API error {response.status_code}: {response.text[:200]}")
-                return response.content
+                if resp.status_code != 200:
+                    raise RuntimeError(f"ElevenLabs error {resp.status_code}: {resp.text[:200]}")
+                return resp.content
 
     async def list_voices(self) -> list[TTSVoice]:
-        import httpx
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(f"{self.base_url}/voices", headers=self._headers())
-            if response.status_code != 200:
-                raise RuntimeError(f"Failed to fetch voices: {response.status_code}")
-            data = response.json()
+            resp = await client.get(f"{self.base_url}/voices", headers=self._headers())
+            if resp.status_code != 200:
+                raise RuntimeError(f"Failed to fetch voices: {resp.status_code}")
             return [
                 TTSVoice(
                     voice_id=v.get("voice_id", ""),
@@ -132,28 +121,24 @@ class ElevenLabsProvider(BaseTTSProvider):
                     preview_url=v.get("preview_url") or "",
                     description=v.get("description") or "",
                 )
-                for v in data.get("voices", [])
+                for v in resp.json().get("voices", [])
             ]
 
     async def validate(self) -> tuple[bool, str]:
-        import httpx
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(
-                    f"{self.base_url}/user/subscription", headers=self._headers()
-                )
-                if response.status_code == 200:
-                    info = response.json()
-                    return True, f"Valid — {info.get('character_count', '?')}/{info.get('character_limit', '?')} chars used"
-                return False, f"Invalid key (HTTP {response.status_code})"
+                resp = await client.get(f"{self.base_url}/user/subscription", headers=self._headers())
+                if resp.status_code == 200:
+                    info = resp.json()
+                    return True, f"Valid — {info.get('character_count', '?')}/{info.get('character_limit', '?')} chars"
+                return False, f"Invalid key (HTTP {resp.status_code})"
         except Exception as e:
             return False, str(e)
 
 
-# ── Local model providers ──────────────────────────────
+# ── Kokoro (in-process, CPU) ───────────────────────────
 
 class KokoroProvider(BaseTTSProvider):
-    """Kokoro — 82M param, fast, runs on CPU. pip install kokoro-onnx"""
     name = "kokoro"
     display_name = "Kokoro (Local)"
     requires_api_key = False
@@ -163,20 +148,15 @@ class KokoroProvider(BaseTTSProvider):
 
     def _load(self):
         if self._model is None:
-            try:
-                from kokoro_onnx import Kokoro
-                self._model = Kokoro("kokoro-v0_19.onnx", "voices.bin")
-            except ImportError:
-                raise RuntimeError(
-                    "Kokoro not installed. Run: pip install kokoro-onnx && "
-                    "python -c \"from kokoro_onnx import Kokoro; Kokoro('kokoro-v0_19.onnx','voices.bin')\""
-                )
+            from kokoro_onnx import Kokoro
+            self._model = Kokoro("kokoro-v0_19.onnx", "voices.bin")
 
     def audio_format(self) -> str:
         return "wav"
 
     async def generate_speech(self, request: TTSRequest) -> bytes:
-        import io, soundfile as sf
+        import io
+        import soundfile as sf
         self._load()
         voice = request.voice_id or "af_bella"
         samples, sr = self._model.create(request.text, voice=voice, speed=1.0)
@@ -185,198 +165,26 @@ class KokoroProvider(BaseTTSProvider):
         return buf.getvalue()
 
     async def list_voices(self) -> list[TTSVoice]:
-        # Kokoro built-in voices
-        voices = [
-            ("af_bella", "Bella (Female)"), ("af_sarah", "Sarah (Female)"),
-            ("af_nicole", "Nicole (Female)"), ("af_sky", "Sky (Female)"),
-            ("am_adam", "Adam (Male)"), ("am_michael", "Michael (Male)"),
-            ("bf_emma", "Emma (British F)"), ("bm_george", "George (British M)"),
+        return [
+            TTSVoice(vid, name, "built-in") for vid, name in [
+                ("af_bella", "Bella (Female)"), ("af_sarah", "Sarah (Female)"),
+                ("af_nicole", "Nicole (Female)"), ("af_sky", "Sky (Female)"),
+                ("am_adam", "Adam (Male)"), ("am_michael", "Michael (Male)"),
+                ("bf_emma", "Emma (British F)"), ("bm_george", "George (British M)"),
+            ]
         ]
-        return [TTSVoice(voice_id=vid, name=name, category="built-in") for vid, name in voices]
 
     async def validate(self) -> tuple[bool, str]:
         try:
             self._load()
             return True, "Kokoro model loaded"
         except Exception as e:
-            return False, str(e)
+            return False, f"Not installed: {e}"
 
 
-class ChatterboxProvider(BaseTTSProvider):
-    """Chatterbox by Resemble AI — 350M param, expressive. pip install chatterbox-tts"""
-    name = "chatterbox"
-    display_name = "Chatterbox (Local)"
-    requires_api_key = False
-    supports_voice_cloning = True
-
-    def __init__(self):
-        self._model = None
-
-    def _load(self):
-        if self._model is None:
-            try:
-                from chatterbox.tts import ChatterboxTTS
-                import torch
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                self._model = ChatterboxTTS.from_pretrained(device=device)
-            except ImportError:
-                raise RuntimeError("Chatterbox not installed. Run: pip install chatterbox-tts")
-
-    def audio_format(self) -> str:
-        return "wav"
-
-    async def generate_speech(self, request: TTSRequest) -> bytes:
-        import io, torchaudio
-        self._load()
-        # voice_id can be a path to a reference audio file for cloning
-        ref_audio = request.voice_id if os.path.isfile(request.voice_id) else None
-        wav = self._model.generate(request.text, audio_prompt_path=ref_audio)
-        buf = io.BytesIO()
-        torchaudio.save(buf, wav, self._model.sr, format="wav")
-        return buf.getvalue()
-
-    async def list_voices(self) -> list[TTSVoice]:
-        return [
-            TTSVoice(voice_id="default", name="Default", category="built-in",
-                     description="Default Chatterbox voice"),
-            TTSVoice(voice_id="clone", name="Clone (provide audio path)", category="cloning",
-                     description="Set voice_id to a .wav file path to clone that voice"),
-        ]
-
-    async def validate(self) -> tuple[bool, str]:
-        try:
-            self._load()
-            return True, "Chatterbox model loaded"
-        except Exception as e:
-            return False, str(e)
-
-
-class XTTSProvider(BaseTTSProvider):
-    """Coqui XTTS v2 — best voice cloning, multilingual. pip install TTS"""
-    name = "xtts"
-    display_name = "XTTS v2 / Coqui (Local)"
-    requires_api_key = False
-    supports_voice_cloning = True
-
-    def __init__(self):
-        self._tts = None
-
-    def _load(self):
-        if self._tts is None:
-            try:
-                from TTS.api import TTS
-                self._tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=True)
-            except ImportError:
-                raise RuntimeError("Coqui TTS not installed. Run: pip install TTS")
-            except Exception:
-                # Fall back to CPU
-                from TTS.api import TTS
-                self._tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=False)
-
-    def audio_format(self) -> str:
-        return "wav"
-
-    async def generate_speech(self, request: TTSRequest) -> bytes:
-        import tempfile
-        self._load()
-        ref_audio = request.voice_id if os.path.isfile(request.voice_id) else None
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
-
-        try:
-            if ref_audio:
-                self._tts.tts_to_file(
-                    text=request.text,
-                    speaker_wav=ref_audio,
-                    language="en",
-                    file_path=tmp_path,
-                )
-            else:
-                self._tts.tts_to_file(text=request.text, file_path=tmp_path)
-
-            with open(tmp_path, "rb") as f:
-                return f.read()
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-
-    async def list_voices(self) -> list[TTSVoice]:
-        return [
-            TTSVoice(voice_id="default", name="Default XTTS", category="built-in"),
-            TTSVoice(voice_id="clone", name="Clone (provide .wav path as voice_id)",
-                     category="cloning",
-                     description="Set voice_id to a .wav file path for 6-second voice cloning"),
-        ]
-
-    async def validate(self) -> tuple[bool, str]:
-        try:
-            self._load()
-            return True, "XTTS v2 model loaded"
-        except Exception as e:
-            return False, str(e)
-
-
-class OrpheusTTSProvider(BaseTTSProvider):
-    """Orpheus TTS — 3B param, emotional control. pip install orpheus-tts"""
-    name = "orpheus"
-    display_name = "Orpheus TTS (Local)"
-    requires_api_key = False
-
-    def __init__(self):
-        self._model = None
-
-    def _load(self):
-        if self._model is None:
-            try:
-                from orpheus_tts import OrpheusModel
-                self._model = OrpheusModel(model_name="canopylabs/orpheus-tts-0.1-finetune-prod")
-            except ImportError:
-                raise RuntimeError("Orpheus TTS not installed. Run: pip install orpheus-tts")
-
-    def audio_format(self) -> str:
-        return "wav"
-
-    async def generate_speech(self, request: TTSRequest) -> bytes:
-        import io, struct, wave as wave_mod
-        self._load()
-        voice = request.voice_id or "tara"
-        audio_chunks = self._model.generate_speech(
-            prompt=request.text,
-            voice=voice,
-        )
-        # Collect PCM samples from generator
-        pcm_data = b""
-        for chunk in audio_chunks:
-            pcm_data += chunk
-
-        # Wrap in WAV
-        buf = io.BytesIO()
-        with wave_mod.open(buf, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(24000)
-            wf.writeframes(pcm_data)
-        return buf.getvalue()
-
-    async def list_voices(self) -> list[TTSVoice]:
-        voices = [
-            ("tara", "Tara (Female)"), ("leah", "Leah (Female)"),
-            ("jess", "Jess (Female)"), ("leo", "Leo (Male)"),
-            ("dan", "Dan (Male)"), ("mia", "Mia (Female)"),
-            ("zac", "Zac (Male)"), ("zoe", "Zoe (Female)"),
-        ]
-        return [TTSVoice(voice_id=vid, name=name, category="built-in") for vid, name in voices]
-
-    async def validate(self) -> tuple[bool, str]:
-        try:
-            self._load()
-            return True, "Orpheus model loaded"
-        except Exception as e:
-            return False, str(e)
-
+# ── Piper (in-process, CPU) ────────────────────────────
 
 class PiperProvider(BaseTTSProvider):
-    """Piper — very fast, low resource, CPU-friendly. pip install piper-tts"""
     name = "piper"
     display_name = "Piper (Local, CPU)"
     requires_api_key = False
@@ -392,8 +200,7 @@ class PiperProvider(BaseTTSProvider):
         try:
             proc = subprocess.run(
                 ["piper", "--model", voice, "--output_file", tmp_path],
-                input=request.text.encode(),
-                capture_output=True, timeout=30,
+                input=request.text.encode(), capture_output=True, timeout=30,
             )
             if proc.returncode != 0:
                 raise RuntimeError(f"Piper failed: {proc.stderr.decode()[:200]}")
@@ -404,24 +211,80 @@ class PiperProvider(BaseTTSProvider):
                 os.remove(tmp_path)
 
     async def list_voices(self) -> list[TTSVoice]:
-        voices = [
-            ("en_US-lessac-medium", "Lessac (US Medium)"),
-            ("en_US-lessac-high", "Lessac (US High)"),
-            ("en_US-amy-medium", "Amy (US Medium)"),
-            ("en_US-ryan-medium", "Ryan (US Medium)"),
-            ("en_GB-alan-medium", "Alan (GB Medium)"),
-            ("en_GB-alba-medium", "Alba (GB Medium)"),
+        return [
+            TTSVoice(vid, name, "built-in") for vid, name in [
+                ("en_US-lessac-medium", "Lessac (US Medium)"),
+                ("en_US-lessac-high", "Lessac (US High)"),
+                ("en_US-amy-medium", "Amy (US Medium)"),
+                ("en_US-ryan-medium", "Ryan (US Medium)"),
+                ("en_GB-alan-medium", "Alan (GB Medium)"),
+                ("en_GB-alba-medium", "Alba (GB Medium)"),
+            ]
         ]
-        return [TTSVoice(voice_id=vid, name=name, category="built-in") for vid, name in voices]
 
     async def validate(self) -> tuple[bool, str]:
         import shutil
-        if shutil.which("piper"):
-            return True, "Piper CLI found"
-        return False, "Piper not installed. Run: pip install piper-tts"
+        return (True, "Piper CLI found") if shutil.which("piper") else (False, "piper not installed")
 
 
-# ── Provider registry ──────────────────────────────────
+# ── Sidecar provider (calls a container over HTTP) ─────
+
+class SidecarProvider(BaseTTSProvider):
+    """Generic provider that delegates to a sidecar TTS container via HTTP."""
+
+    def __init__(self, name: str, display_name: str, base_url: str,
+                 supports_cloning: bool = False):
+        self.name = name
+        self.display_name = display_name
+        self.base_url = base_url.rstrip("/")
+        self.supports_voice_cloning = supports_cloning
+
+    def audio_format(self) -> str:
+        return "wav"
+
+    async def generate_speech(self, request: TTSRequest) -> bytes:
+        payload = {"text": request.text, "voice_id": request.voice_id}
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(f"{self.base_url}/generate", json=payload)
+            if resp.status_code != 200:
+                detail = resp.text[:300]
+                raise RuntimeError(f"{self.display_name} error {resp.status_code}: {detail}")
+            return resp.content
+
+    async def list_voices(self) -> list[TTSVoice]:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.base_url}/voices")
+                if resp.status_code == 200:
+                    return [
+                        TTSVoice(
+                            voice_id=v.get("voice_id", ""),
+                            name=v.get("name", "Unknown"),
+                            category=v.get("category", ""),
+                            description=v.get("description", ""),
+                        )
+                        for v in resp.json()
+                    ]
+        except Exception:
+            pass
+        return [TTSVoice("default", f"{self.display_name} Default", "built-in")]
+
+    async def validate(self) -> tuple[bool, str]:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{self.base_url}/health")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    gpu = data.get("gpu", False)
+                    return True, f"Ready (GPU: {gpu})"
+                return False, f"Service returned {resp.status_code}"
+        except httpx.ConnectError:
+            return False, f"Service not running at {self.base_url}"
+        except Exception as e:
+            return False, str(e)
+
+
+# ── Registry ───────────────────────────────────────────
 
 _PROVIDERS: dict[str, BaseTTSProvider] = {}
 
@@ -453,13 +316,33 @@ def init_providers(api_key: str = ""):
     from app.core.config import get_settings
     settings = get_settings()
 
+    # Cloud
     register_provider(ElevenLabsProvider(
         api_key=api_key or settings.elevenlabs_api_key,
         base_url=settings.elevenlabs_base_url,
         max_concurrent=settings.max_concurrent_generations,
     ))
+
+    # In-process (lightweight, CPU)
     register_provider(KokoroProvider())
-    register_provider(ChatterboxProvider())
-    register_provider(XTTSProvider())
-    register_provider(OrpheusTTSProvider())
     register_provider(PiperProvider())
+
+    # Sidecar containers (GPU models, called over HTTP)
+    register_provider(SidecarProvider(
+        name="chatterbox",
+        display_name="Chatterbox (GPU)",
+        base_url=os.environ.get("CHATTERBOX_URL", "http://chatterbox:5000"),
+        supports_cloning=True,
+    ))
+    register_provider(SidecarProvider(
+        name="xtts",
+        display_name="XTTS v2 / Coqui (GPU)",
+        base_url=os.environ.get("XTTS_URL", "http://xtts:5000"),
+        supports_cloning=True,
+    ))
+    register_provider(SidecarProvider(
+        name="orpheus",
+        display_name="Orpheus TTS (GPU)",
+        base_url=os.environ.get("ORPHEUS_URL", "http://orpheus:5000"),
+        supports_cloning=False,
+    ))

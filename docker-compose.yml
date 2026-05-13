@@ -40,6 +40,9 @@ services:
       - UPLOAD_DIR=/app/uploads
       - OUTPUT_DIR=/app/outputs
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CHATTERBOX_URL=http://chatterbox:5000
+      - XTTS_URL=http://xtts:5000
+      - ORPHEUS_URL=http://orpheus:5000
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
@@ -72,6 +75,9 @@ services:
       - MAX_CONCURRENT_GENERATIONS=${MAX_CONCURRENT_GENERATIONS:-5}
       - UPLOAD_DIR=/app/uploads
       - OUTPUT_DIR=/app/outputs
+      - CHATTERBOX_URL=http://chatterbox:5000
+      - XTTS_URL=http://xtts:5000
+      - ORPHEUS_URL=http://orpheus:5000
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
@@ -118,11 +124,74 @@ services:
     networks:
       - dialogueforge
 
+  # ── GPU TTS sidecars (optional — comment out any you don't need) ──
+
+  chatterbox:
+    build: ./services/chatterbox
+    expose:
+      - "5000"
+    volumes:
+      - model_cache:/root/.cache
+      - outputs:/app/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - dialogueforge
+    profiles:
+      - gpu
+
+  xtts:
+    build: ./services/xtts
+    expose:
+      - "5000"
+    volumes:
+      - model_cache:/root/.cache
+      - outputs:/app/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - dialogueforge
+    profiles:
+      - gpu
+
+  orpheus:
+    build: ./services/orpheus
+    expose:
+      - "5000"
+    volumes:
+      - model_cache:/root/.cache
+      - outputs:/app/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - dialogueforge
+    profiles:
+      - gpu
+
 volumes:
   uploads:
   outputs:
   redis_data:
   postgres_data:
+  model_cache:
 
 networks:
   dialogueforge:
