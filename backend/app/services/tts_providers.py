@@ -143,13 +143,22 @@ class KokoroProvider(BaseTTSProvider):
     display_name = "Kokoro (Local)"
     requires_api_key = False
 
+    MODEL_DIR = "/app/models/kokoro"
+
     def __init__(self):
         self._model = None
 
     def _load(self):
         if self._model is None:
             from kokoro_onnx import Kokoro
-            self._model = Kokoro("kokoro-v0_19.onnx", "voices.bin")
+            onnx_path = os.path.join(self.MODEL_DIR, "kokoro-v0_19.onnx")
+            voices_path = os.path.join(self.MODEL_DIR, "voices.bin")
+            if not os.path.exists(onnx_path) or not os.path.exists(voices_path):
+                raise RuntimeError(
+                    f"Kokoro model files not found in {self.MODEL_DIR}. "
+                    "Rebuild the backend container to download them."
+                )
+            self._model = Kokoro(onnx_path, voices_path)
 
     def audio_format(self) -> str:
         return "wav"
@@ -167,10 +176,19 @@ class KokoroProvider(BaseTTSProvider):
     async def list_voices(self) -> list[TTSVoice]:
         return [
             TTSVoice(vid, name, "built-in") for vid, name in [
-                ("af_bella", "Bella (Female)"), ("af_sarah", "Sarah (Female)"),
-                ("af_nicole", "Nicole (Female)"), ("af_sky", "Sky (Female)"),
-                ("am_adam", "Adam (Male)"), ("am_michael", "Michael (Male)"),
-                ("bf_emma", "Emma (British F)"), ("bm_george", "George (British M)"),
+                ("af_alloy", "Alloy (US Female)"), ("af_aoede", "Aoede (US Female)"),
+                ("af_bella", "Bella (US Female)"), ("af_jessica", "Jessica (US Female)"),
+                ("af_kore", "Kore (US Female)"), ("af_nicole", "Nicole (US Female)"),
+                ("af_nova", "Nova (US Female)"), ("af_river", "River (US Female)"),
+                ("af_sarah", "Sarah (US Female)"), ("af_sky", "Sky (US Female)"),
+                ("am_adam", "Adam (US Male)"), ("am_echo", "Echo (US Male)"),
+                ("am_eric", "Eric (US Male)"), ("am_fenrir", "Fenrir (US Male)"),
+                ("am_liam", "Liam (US Male)"), ("am_michael", "Michael (US Male)"),
+                ("am_onyx", "Onyx (US Male)"), ("am_puck", "Puck (US Male)"),
+                ("bf_alice", "Alice (British F)"), ("bf_emma", "Emma (British F)"),
+                ("bf_isabella", "Isabella (British F)"), ("bf_lily", "Lily (British F)"),
+                ("bm_daniel", "Daniel (British M)"), ("bm_fable", "Fable (British M)"),
+                ("bm_george", "George (British M)"), ("bm_lewis", "Lewis (British M)"),
             ]
         ]
 
