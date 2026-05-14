@@ -1,6 +1,10 @@
+version: "3.9"
+
 services:
   nginx:
-    build: ./nginx
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
     ports:
       - "80:80"
     depends_on:
@@ -9,6 +13,7 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    init: true
     networks:
       - dialogueforge
 
@@ -19,8 +24,9 @@ services:
     expose:
       - "3000"
     environment:
-      - VITE_API_URL=/api
+      VITE_API_URL: /api
     restart: unless-stopped
+    init: true
     networks:
       - dialogueforge
 
@@ -30,35 +36,46 @@ services:
       dockerfile: Dockerfile
     expose:
       - "8000"
+
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://dialogueforge:changeme_in_production@postgres:5432/dialogueforge}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-change-this-to-a-random-secret-key}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
-      - ELEVENLABS_BASE_URL=${ELEVENLABS_BASE_URL:-https://api.elevenlabs.io/v1}
-      - MAX_CONCURRENT_GENERATIONS=${MAX_CONCURRENT_GENERATIONS:-5}
-      - UPLOAD_DIR=/app/uploads
-      - OUTPUT_DIR=/app/outputs
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - CHATTERBOX_URL=http://chatterbox:5000
-      - XTTS_URL=http://xtts:5000
-      - ORPHEUS_URL=http://orpheus:5000
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://dialogueforge:changeme_in_production@postgres:5432/dialogueforge}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-change-this-to-a-random-secret-key}
+
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_BASE_URL: ${ELEVENLABS_BASE_URL:-https://api.elevenlabs.io/v1}
+
+      MAX_CONCURRENT_GENERATIONS: ${MAX_CONCURRENT_GENERATIONS:-5}
+
+      UPLOAD_DIR: /app/uploads
+      OUTPUT_DIR: /app/outputs
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      CHATTERBOX_URL: http://chatterbox:5000
+      XTTS_URL: http://xtts:5000
+      ORPHEUS_URL: http://orpheus:5000
+
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
       - kokoro_models:/app/models/kokoro
+
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 30s
+
     restart: unless-stopped
+    init: true
     networks:
       - dialogueforge
 
@@ -66,75 +83,115 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["celery", "-A", "app.workers.celery_worker:celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+
+    command:
+      [
+        "celery",
+        "-A",
+        "app.workers.celery_worker:celery_app",
+        "worker",
+        "--loglevel=info",
+        "--concurrency=2"
+      ]
+
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://dialogueforge:changeme_in_production@postgres:5432/dialogueforge}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-change-this-to-a-random-secret-key}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
-      - ELEVENLABS_BASE_URL=${ELEVENLABS_BASE_URL:-https://api.elevenlabs.io/v1}
-      - MAX_CONCURRENT_GENERATIONS=${MAX_CONCURRENT_GENERATIONS:-5}
-      - UPLOAD_DIR=/app/uploads
-      - OUTPUT_DIR=/app/outputs
-      - CHATTERBOX_URL=http://chatterbox:5000
-      - XTTS_URL=http://xtts:5000
-      - ORPHEUS_URL=http://orpheus:5000
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://dialogueforge:changeme_in_production@postgres:5432/dialogueforge}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-change-this-to-a-random-secret-key}
+
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_BASE_URL: ${ELEVENLABS_BASE_URL:-https://api.elevenlabs.io/v1}
+
+      MAX_CONCURRENT_GENERATIONS: ${MAX_CONCURRENT_GENERATIONS:-5}
+
+      UPLOAD_DIR: /app/uploads
+      OUTPUT_DIR: /app/outputs
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      CHATTERBOX_URL: http://chatterbox:5000
+      XTTS_URL: http://xtts:5000
+      ORPHEUS_URL: http://orpheus:5000
+
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
       - kokoro_models:/app/models/kokoro
+
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+
     restart: unless-stopped
+    init: true
     networks:
       - dialogueforge
 
   redis:
     image: redis:7-alpine
+
     expose:
       - "6379"
+
     volumes:
       - redis_data:/data
+
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5
+
     restart: unless-stopped
+    init: true
     networks:
       - dialogueforge
 
   postgres:
     image: postgres:16-alpine
+
     expose:
       - "5432"
+
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-dialogueforge}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_in_production}
-      - POSTGRES_DB=${POSTGRES_DB:-dialogueforge}
+      POSTGRES_USER: ${POSTGRES_USER:-dialogueforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_production}
+      POSTGRES_DB: ${POSTGRES_DB:-dialogueforge}
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dialogueforge"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dialogueforge}"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5
+
     restart: unless-stopped
+    init: true
     networks:
       - dialogueforge
 
-  # ── GPU TTS sidecars (optional — comment out any you don't need) ──
+  # -----------------------------
+  # GPU TTS SERVICES (OPTIONAL)
+  # Enable with:
+  # docker compose --profile gpu up
+  # -----------------------------
 
   chatterbox:
-    build: ./services/chatterbox
+    build:
+      context: ./services/chatterbox
+      dockerfile: Dockerfile
+
     expose:
       - "5000"
+
     volumes:
       - model_cache:/root/.cache
       - outputs:/app/outputs
+
     deploy:
       resources:
         reservations:
@@ -142,19 +199,26 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
     restart: unless-stopped
-    networks:
-      - dialogueforge
+    init: true
     profiles:
       - gpu
+    networks:
+      - dialogueforge
 
   xtts:
-    build: ./services/xtts
+    build:
+      context: ./services/xtts
+      dockerfile: Dockerfile
+
     expose:
       - "5000"
+
     volumes:
       - model_cache:/root/.cache
       - outputs:/app/outputs
+
     deploy:
       resources:
         reservations:
@@ -162,19 +226,26 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
     restart: unless-stopped
-    networks:
-      - dialogueforge
+    init: true
     profiles:
       - gpu
+    networks:
+      - dialogueforge
 
   orpheus:
-    build: ./services/orpheus
+    build:
+      context: ./services/orpheus
+      dockerfile: Dockerfile
+
     expose:
       - "5000"
+
     volumes:
       - model_cache:/root/.cache
       - outputs:/app/outputs
+
     deploy:
       resources:
         reservations:
@@ -182,11 +253,13 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
     restart: unless-stopped
-    networks:
-      - dialogueforge
+    init: true
     profiles:
       - gpu
+    networks:
+      - dialogueforge
 
 volumes:
   uploads:
