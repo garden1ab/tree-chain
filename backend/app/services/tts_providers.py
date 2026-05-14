@@ -153,9 +153,18 @@ class KokoroProvider(BaseTTSProvider):
             from kokoro_onnx import Kokoro
             onnx_path = os.path.join(self.MODEL_DIR, "kokoro-v0_19.onnx")
             voices_path = os.path.join(self.MODEL_DIR, "voices.bin")
+
+            # Debug: list what's actually in the directory
+            if os.path.isdir(self.MODEL_DIR):
+                contents = os.listdir(self.MODEL_DIR)
+                logger.info("kokoro.model_dir_contents", path=self.MODEL_DIR, files=contents)
+            else:
+                logger.info("kokoro.model_dir_missing", path=self.MODEL_DIR)
+
             if not os.path.exists(onnx_path) or not os.path.exists(voices_path):
                 raise RuntimeError(
                     f"Kokoro model files not found in {self.MODEL_DIR}. "
+                    f"Files present: {os.listdir(self.MODEL_DIR) if os.path.isdir(self.MODEL_DIR) else 'DIR MISSING'}. "
                     "Rebuild the backend container to download them."
                 )
             self._model = Kokoro(onnx_path, voices_path)
