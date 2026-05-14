@@ -46,6 +46,7 @@ services:
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
+      - kokoro_models:/app/models/kokoro
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,6 +82,7 @@ services:
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
+      - kokoro_models:/app/models/kokoro
     depends_on:
       postgres:
         condition: service_healthy
@@ -192,6 +194,7 @@ volumes:
   redis_data:
   postgres_data:
   model_cache:
+  kokoro_models:
 
 networks:
   dialogueforge:
