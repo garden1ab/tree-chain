@@ -2,21 +2,26 @@
 # DialogueForge TTS Engines — Run separately from the main app
 # ═══════════════════════════════════════════════════════════════════
 #
+# Each engine uses a Docker Compose "profile" so they don't all start
+# at once. Pick the one(s) you want:
+#
 # USAGE:
 #   cd tts-engines
 #
-#   # Start Chatterbox only (best quality, voice cloning):
-#   docker compose up chatterbox -d
+#   # Start Kokoro only (CPU, fast, no GPU needed):
+#   docker compose --profile kokoro up -d --build
 #
-#   # Start Orpheus only (emotion tags, multilingual):
-#   docker compose up orpheus-api -d        # needs orpheus-llm too
-#   docker compose up orpheus-llm -d
+#   # Start Chatterbox only (best quality, voice cloning, CPU):
+#   docker compose --profile chatterbox up -d
 #
-#   # Start Kokoro only (fast, CPU-friendly):
-#   docker compose up kokoro -d
+#   # Start Orpheus only (emotion tags, needs GPU for reasonable speed):
+#   docker compose --profile orpheus up -d --build
 #
 #   # Start everything:
-#   docker compose up -d
+#   docker compose --profile all up -d --build
+#
+#   # Stop everything:
+#   docker compose --profile all down
 #
 # Then in DialogueForge's .env, set the URLs:
 #   CHATTERBOX_URL=http://host.docker.internal:4123
@@ -33,64 +38,55 @@ services:
 
   # ── 1. CHATTERBOX (Priority #1 — ElevenLabs quality) ──────────
   # Voice cloning, emotion control, multilingual, 0.5B params
-  # Needs ~5-7GB VRAM (GPU) or runs slower on CPU
+  # CPU version works without GPU but is slower
   # Web UI: http://localhost:4123
   # API:    http://localhost:4123/v1/audio/speech (OpenAI-compatible)
   chatterbox:
-    image: ghcr.io/travisvn/chatterbox-tts-api:latest
+    image: travisvn/chatterbox-tts-api:latest-cpu
     ports:
       - "4123:4123"
     environment:
-      - TTS_MODEL=chatterbox            # or chatterbox-multilingual, chatterbox-turbo
-      - DEFAULT_VOICE=voice-sample      # default voice name
-      - VOICE_DIR=/app/voices           # where voice samples live
-      - OUTPUT_DIR=/app/outputs
-      - HOST=0.0.0.0
       - PORT=4123
+      - HOST=0.0.0.0
+      - EXAGGERATION=0.5
+      - CFG_WEIGHT=0.5
+      - TEMPERATURE=0.8
+      - DEVICE=auto
     volumes:
-      - chatterbox_voices:/app/voices   # persistent voice library
-      - chatterbox_models:/app/models   # cached model weights
-      - chatterbox_outputs:/app/outputs
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      - chatterbox_models:/cache
+      - chatterbox_voices:/app/voices
     restart: unless-stopped
+    profiles: [chatterbox, all]
 
   # ── 2. ORPHEUS (Priority #2 — emotion control, multilingual) ──
   # 8 voices, emotion tags, 8 languages, voice cloning
   # Uses llama.cpp for inference + FastAPI for audio pipeline
-  # Needs ~6-8GB VRAM
   # Web UI: http://localhost:8899
+  # NOTE: Uses GPU if available (NVIDIA Container Toolkit required), else CPU
   orpheus-llm:
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server
     ports:
       - "5006:5006"
-    environment:
-      - LLAMA_ARG_MODEL=/models/${ORPHEUS_MODEL_NAME:-Orpheus-3b-0.1-ft-Q8_0.gguf}
-      - LLAMA_ARG_CTX_SIZE=2048
-      - LLAMA_ARG_N_GPU_LAYERS=99
-      - LLAMA_ARG_PORT=5006
-      - LLAMA_ARG_HOST=0.0.0.0
+    command: >
+      --host 0.0.0.0
+      --port 5006
+      -m /models/Orpheus-3b-0.1-ft-Q8_0.gguf
+      -c 2048
+      -ngl 99
     volumes:
       - orpheus_models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    depends_on:
+      orpheus-init:
+        condition: service_completed_successfully
     restart: unless-stopped
+    profiles: [orpheus, all]
 
   orpheus-init:
     image: python:3.11-slim
     volumes:
       - orpheus_models:/models
     entrypoint: ["bash", "-c", "pip install -q huggingface_hub && python -c \"from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='lex-au/Orpheus-3b-0.1-ft-GGUF', filename='Orpheus-3b-0.1-ft-Q8_0.gguf', local_dir='/models')\" && echo 'Orpheus model downloaded.' || echo 'Already exists or failed.'"]
+    profiles: [orpheus, all]
 
   orpheus-api:
     build:
@@ -112,8 +108,9 @@ services:
     depends_on:
       - orpheus-llm
     restart: unless-stopped
+    profiles: [orpheus, all]
 
-  # ── 3. KOKORO (Priority #3 — fast, CPU-friendly) ──────────────
+  # ── 3. KOKORO (Fast, CPU-friendly) ────────────────────────────
   # 82M params, 26 voices, no voice cloning, runs on CPU
   # Web UI: http://localhost:8880
   kokoro:
@@ -128,6 +125,7 @@ services:
     volumes:
       - kokoro_models:/app/models
     restart: unless-stopped
+    profiles: [kokoro, all]
 
 volumes:
   chatterbox_voices:

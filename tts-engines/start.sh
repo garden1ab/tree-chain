@@ -9,15 +9,15 @@
 # Each engine runs independently with its own Web UI for testing.
 #
 # Usage:
-#   ./start.sh              # Start all engines
-#   ./start.sh kokoro       # Start only Kokoro (CPU, fast)
-#   ./start.sh chatterbox   # Start only Chatterbox (GPU, best quality)
-#   ./start.sh orpheus      # Start only Orpheus (GPU, emotion control)
+#   ./start.sh kokoro       # Start only Kokoro (CPU, fast, ~310MB)
+#   ./start.sh chatterbox   # Start only Chatterbox (CPU/GPU, best quality)
+#   ./start.sh orpheus      # Start only Orpheus (GPU needed for speed)
+#   ./start.sh all          # Start everything
 
 set -e
 cd "$(dirname "$0")"
 
-ENGINE="${1:-all}"
+ENGINE="${1:-kokoro}"
 
 echo "═══════════════════════════════════════════════"
 echo " DialogueForge TTS Engines"
@@ -27,40 +27,39 @@ case "$ENGINE" in
   kokoro)
     echo "Starting Kokoro (CPU, fast, 26 voices)..."
     echo "Web UI: http://localhost:8880"
-    docker compose up kokoro -d --build
+    docker compose --profile kokoro up -d --build
     ;;
   chatterbox)
-    echo "Starting Chatterbox (GPU, best quality, voice cloning)..."
+    echo "Starting Chatterbox (best quality, voice cloning)..."
     echo "Web UI: http://localhost:4123"
-    docker compose up chatterbox -d
+    docker compose --profile chatterbox up -d
     ;;
   orpheus)
-    echo "Starting Orpheus (GPU, emotion tags, 8 voices)..."
-    echo "  Step 1: Downloading model (first time only)..."
-    docker compose run --rm orpheus-init
-    echo "  Step 2: Starting LLM server + API..."
-    docker compose up orpheus-llm orpheus-api -d
+    echo "Starting Orpheus (emotion tags, 8 voices)..."
+    echo "First run will download ~3GB model from HuggingFace..."
     echo "Web UI: http://localhost:8899"
+    docker compose --profile orpheus up -d --build
     ;;
   all)
     echo "Starting all TTS engines..."
     echo ""
     echo "  Kokoro:     http://localhost:8880  (CPU)"
-    echo "  Chatterbox: http://localhost:4123  (GPU)"
-    echo "  Orpheus:    http://localhost:8899  (GPU)"
+    echo "  Chatterbox: http://localhost:4123  (CPU/GPU)"
+    echo "  Orpheus:    http://localhost:8899  (GPU recommended)"
     echo ""
-    docker compose run --rm orpheus-init 2>/dev/null || true
-    docker compose up -d --build
+    docker compose --profile all up -d --build
+    ;;
+  stop|down)
+    echo "Stopping all TTS engines..."
+    docker compose --profile all down
     ;;
   *)
-    echo "Unknown engine: $ENGINE"
-    echo "Usage: $0 [kokoro|chatterbox|orpheus|all]"
+    echo "Unknown command: $ENGINE"
+    echo "Usage: $0 [kokoro|chatterbox|orpheus|all|stop]"
     exit 1
     ;;
 esac
 
 echo ""
-echo "TTS engines starting. First run downloads models (~300MB-3GB)."
-echo "Check logs: docker compose logs -f"
-echo ""
-echo "DialogueForge will auto-detect running engines."
+echo "View logs: docker compose logs -f"
+echo "Stop:      ./start.sh stop"
