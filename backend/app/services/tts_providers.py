@@ -351,26 +351,30 @@ def init_providers(api_key: str = ""):
         max_concurrent=settings.max_concurrent_generations,
     ))
 
-    # In-process (lightweight, CPU)
-    register_provider(KokoroProvider())
-    register_provider(PiperProvider())
+    # All local models run as separate services, connected via HTTP
+    # Start them with: cd tts-engines && docker compose up
 
-    # Sidecar containers (GPU models, called over HTTP)
     register_provider(SidecarProvider(
         name="chatterbox",
-        display_name="Chatterbox (GPU)",
-        base_url=os.environ.get("CHATTERBOX_URL", "http://chatterbox:5000"),
-        supports_cloning=True,
-    ))
-    register_provider(SidecarProvider(
-        name="xtts",
-        display_name="XTTS v2 / Coqui (GPU)",
-        base_url=os.environ.get("XTTS_URL", "http://xtts:5000"),
+        display_name="Chatterbox (Best Quality)",
+        base_url=os.environ.get("CHATTERBOX_URL", "http://host.docker.internal:4123"),
         supports_cloning=True,
     ))
     register_provider(SidecarProvider(
         name="orpheus",
-        display_name="Orpheus TTS (GPU)",
-        base_url=os.environ.get("ORPHEUS_URL", "http://orpheus:5000"),
+        display_name="Orpheus (Emotion Control)",
+        base_url=os.environ.get("ORPHEUS_URL", "http://host.docker.internal:8899"),
         supports_cloning=False,
+    ))
+    register_provider(SidecarProvider(
+        name="kokoro",
+        display_name="Kokoro (Fast, CPU)",
+        base_url=os.environ.get("KOKORO_URL", "http://host.docker.internal:8880"),
+        supports_cloning=False,
+    ))
+    register_provider(SidecarProvider(
+        name="xtts",
+        display_name="XTTS v2 (Multilingual)",
+        base_url=os.environ.get("XTTS_URL", "http://host.docker.internal:5500"),
+        supports_cloning=True,
     ))

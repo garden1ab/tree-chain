@@ -1,109 +1,103 @@
 # DialogueForge
 
-A production-ready full-stack application for generating character dialogue audio with multiple TTS engines — cloud (ElevenLabs) and local (Kokoro, Piper, Chatterbox, XTTS v2, Orpheus).
+Generate character dialogue audio with multiple TTS engines — ElevenLabs (cloud), Chatterbox, Orpheus, Kokoro (local).
 
-## Features
-
-- **Multi-Provider TTS**: Mix ElevenLabs, Kokoro, Chatterbox, XTTS v2, Orpheus, and Piper — each character can use a different engine
-- **Script Import**: CSV, TXT, and JSON dialogue script parsing
-- **Voice Assignment**: Per-character voice/model configuration with manual voice ID input
-- **Audio Effects**: Radio, helmet, robot, telephone, and more via FFmpeg
-- **Batch Generation**: Concurrent TTS with rate limiting and retry
-- **Smart Caching**: Avoid duplicate API/generation calls via content hashing
-- **Export Options**: Combined WAV, individual files, ZIP archives
-- **Project Save/Load**: Persist all settings as .projectforge files
-- **Cost Estimation**: Pre-generation credit usage estimates
-- **Real-time Logs**: Live generation status
-
-## Quick Start (ElevenLabs only)
+## Quick Start
 
 ```bash
-cp .env.example .env        # Edit and add your ElevenLabs API key
-docker compose up --build    # Start core services
-# Open http://localhost
-```
-
-## Quick Start (with GPU models)
-
-```bash
+# 1. Start DialogueForge
 cp .env.example .env
-docker compose --profile gpu up --build   # Starts Chatterbox, XTTS, Orpheus sidecars
+docker compose up --build -d
 # Open http://localhost
-```
 
-You can also start individual GPU services:
-
-```bash
-docker compose up --build chatterbox   # Just Chatterbox
-docker compose up --build xtts         # Just XTTS v2
-docker compose up --build orpheus      # Just Orpheus
+# 2. Start TTS engines (separate terminal)
+cd tts-engines
+./start.sh kokoro          # CPU-friendly, starts fast
+# OR
+./start.sh chatterbox      # Best quality (needs GPU)
+# OR
+./start.sh orpheus         # Emotion control (needs GPU)
+# OR
+./start.sh                 # All engines
 ```
 
 ## Architecture
 
 ```
-                    ┌──────────────┐     ┌──────────────┐
-   Browser ───────▶│    Nginx     │────▶│   Frontend   │
-                    │   (port 80)  │     │  React/Vite  │
-                    └──────┬───────┘     └──────────────┘
-                           │
-                    ┌──────▼───────┐     ┌──────────────┐
-                    │   Backend    │────▶│  PostgreSQL   │
-                    │   FastAPI    │     └──────────────┘
-                    └──────┬───────┘     ┌──────────────┐
-                           │        ────▶│    Redis      │
-                    ┌──────▼───────┐     └──────────────┘
-                    │   Worker     │
-                    │   Celery     │
-                    └──┬───┬───┬───┘
-                       │   │   │
-          ┌────────────┘   │   └────────────┐
-          ▼                ▼                ▼
-   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-   │ Chatterbox  │ │   XTTS v2   │ │  Orpheus    │
-   │  (GPU)      │ │   (GPU)     │ │  (GPU)      │
-   └─────────────┘ └─────────────┘ └─────────────┘
+┌─────────────┐       ┌───────────────────────────┐
+│   Browser   │──────▶│  DialogueForge (port 80)  │
+│             │       │  Nginx → Frontend/Backend  │
+└─────────────┘       └───────────┬───────────────┘
+                                  │ HTTP calls to TTS engines
+                    ┌─────────────┼─────────────┐
+                    ▼             ▼              ▼
+             ┌─────────┐  ┌──────────┐  ┌──────────┐
+             │ Kokoro   │  │Chatterbox│  │ Orpheus  │
+             │ :8880    │  │  :4123   │  │  :8899   │
+             │ (CPU)    │  │  (GPU)   │  │  (GPU)   │
+             └─────────┘  └──────────┘  └──────────┘
 ```
 
-### TTS Providers
+DialogueForge and TTS engines run as **separate docker-compose stacks**. This means:
+- DialogueForge starts instantly (no model downloads blocking startup)
+- Each TTS engine has its own Web UI for testing voices directly
+- You only run the engines you need
+- Engines can run on different machines
 
-| Provider | Type | GPU? | Best for |
-|----------|------|------|----------|
-| **ElevenLabs** | Cloud API | No | Highest quality, production |
-| **Kokoro** | In-process | No (CPU) | Fast, lightweight, free |
-| **Piper** | In-process | No (CPU) | Ultra-fast, low resource |
-| **Chatterbox** | Sidecar | Recommended | Expressive, voice cloning |
-| **XTTS v2** | Sidecar | Recommended | Voice cloning, multilingual |
-| **Orpheus** | Sidecar | Yes | Emotional control |
+## TTS Engines
 
-### GPU Sidecars (optional)
+| Engine | Quality | Voice Cloning | GPU Required | Web UI |
+|--------|---------|---------------|-------------|--------|
+| **Chatterbox** | ★★★★★ | ✅ 5-sec clips | Recommended | http://localhost:4123 |
+| **Orpheus** | ★★★★☆ | ✅ Zero-shot | Yes | http://localhost:8899 |
+| **Kokoro** | ★★★★☆ | ❌ | No (CPU) | http://localhost:8880 |
+| **ElevenLabs** | ★★★★★ | ✅ | No | Cloud API |
 
-| Service     | Model Size | VRAM  |
-|-------------|------------|-------|
-| Chatterbox  | ~350M      | ~2GB  |
-| XTTS v2     | ~1.5B      | ~4GB  |
-| Orpheus     | ~3B        | ~8GB  |
+### Chatterbox (Recommended)
+- Beats ElevenLabs in blind tests (63.75% preference)
+- Voice cloning from 5 seconds of audio
+- Emotion/exaggeration control (0.0–2.0 slider)
+- Multilingual (23 languages with Chatterbox Multilingual)
+- ~5-7GB VRAM
 
-## Remote Access
+### Orpheus
+- Built on Llama 3B — LLM-quality speech understanding
+- Emotion tags: `[laughs]`, `[sighs]`, `[chuckles]`, `[gasps]`
+- 8 built-in voices, 8 languages
+- Zero-shot voice cloning
+- ~8GB VRAM
 
-To access from another computer on your network, change the nginx port in `docker-compose.yml`:
+### Kokoro
+- 82M parameters — runs on CPU
+- 26 built-in voices (US/British, male/female)
+- Fastest inference (~0.3s for any length)
+- No voice cloning
+- Highest MOS score (4.5) in benchmarks
 
-```yaml
-nginx:
-  ports:
-    - "8080:80"
+## Features
+
+- **Multi-Provider TTS**: Each character can use a different engine
+- **Script Import**: CSV, TXT, JSON dialogue parsing
+- **Voice Assignment**: Per-character voice/model configuration
+- **Audio Effects**: Radio, helmet, robot, telephone, etc.
+- **Batch Generation**: Concurrent TTS with rate limiting
+- **Smart Caching**: Content-hash deduplication
+- **Export**: Combined WAV, individual files, ZIP
+- **Project Save/Load**: .projectforge files
+- **No API key required** for local engines
+
+## Configuration
+
+Set TTS engine URLs in `.env` or the defaults will try `host.docker.internal`:
+
+```env
+CHATTERBOX_URL=http://host.docker.internal:4123
+ORPHEUS_URL=http://host.docker.internal:8899
+KOKORO_URL=http://host.docker.internal:8880
 ```
 
-On Windows/WSL2, allow through firewall (Admin PowerShell):
-
-```powershell
-netsh advfirewall firewall add rule name="DialogueForge" dir=in action=allow protocol=TCP localport=8080
-```
+If running on Linux (where `host.docker.internal` doesn't work by default), use your machine's IP or add `extra_hosts` to docker-compose.yml.
 
 ## Sample Data
 
-Sample scripts are included in `samples/` (CSV, TXT, JSON formats).
-
-## Environment Variables
-
-See `.env.example` for all configuration options.
+Sample scripts in `samples/` (CSV, TXT, JSON).
