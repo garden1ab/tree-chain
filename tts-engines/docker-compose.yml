@@ -90,26 +90,7 @@ services:
     image: python:3.11-slim
     volumes:
       - orpheus_models:/models
-    entrypoint: >
-      bash -c "
-        if [ ! -f /models/${ORPHEUS_MODEL_NAME:-Orpheus-3b-0.1-ft-Q8_0.gguf} ]; then
-          pip install -q huggingface_hub &&
-          python -c \"
-from huggingface_hub import hf_hub_download
-import os
-model = os.environ.get('ORPHEUS_MODEL_NAME', 'Orpheus-3b-0.1-ft-Q8_0.gguf')
-print(f'Downloading {model}...')
-hf_hub_download(
-    repo_id='lex-au/Orpheus-3b-0.1-ft-GGUF',
-    filename=model,
-    local_dir='/models'
-)
-print('Done!')
-          \"
-        else
-          echo 'Orpheus model already downloaded.'
-        fi
-      "
+    entrypoint: ["bash", "-c", "pip install -q huggingface_hub && python -c \"from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='lex-au/Orpheus-3b-0.1-ft-GGUF', filename='Orpheus-3b-0.1-ft-Q8_0.gguf', local_dir='/models')\" && echo 'Orpheus model downloaded.' || echo 'Already exists or failed.'"]
 
   orpheus-api:
     build:
