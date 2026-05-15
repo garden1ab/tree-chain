@@ -258,7 +258,7 @@ class PiperProvider(BaseTTSProvider):
 # ── Sidecar provider (calls a container over HTTP) ─────
 
 class SidecarProvider(BaseTTSProvider):
-    """Generic provider that delegates to a sidecar TTS container via HTTP."""
+    """Generic HTTP-based TTS provider (custom or OpenAI-compatible)."""
 
     def __init__(
         self,
@@ -274,115 +274,116 @@ class SidecarProvider(BaseTTSProvider):
         self.api_type = api_type
         self.supports_voice_cloning = supports_cloning
 
+    # -------------------------
+    # REQUIRED
+    # -------------------------
     def audio_format(self) -> str:
         return "wav"
 
+    # -------------------------
+    # SYNTHESIS
+    # -------------------------
     async def generate_speech(self, request: TTSRequest) -> bytes:
         async with httpx.AsyncClient(timeout=120.0) as client:
 
-            # Custom API (Kokoro / Orpheus)
             if self.api_type == "custom":
+                url = f"{self.base_url}/generate"
                 payload = {
                     "text": request.text,
                     "voice_id": request.voice_id,
                 }
 
-                resp = await client.post(
-                    f"{self.base_url}/generate",
-                    json=payload,
-                )
-
-            # OpenAI-compatible API (Chatterbox)
             elif self.api_type == "openai":
+                url = f"{self.base_url}/v1/audio/speech"
                 payload = {
-                    "model": request.model or "tts-1",
+                    "model": request.model_id or "tts-1",
                     "input": request.text,
-                    "voice": request.voice_id or "default",
-                    "response_format": "wav",
+                    "voice": request.voice_id,
+                    "response_format": self.audio_format(),
                 }
 
-                resp = await client.post(
-                    f"{self.base_url}/v1/audio/speech",
-                    json=payload,
-                )
-
             else:
-                raise RuntimeError(f"Unknown API type: {self.api_type}")
+                raise RuntimeError(f"Unknown api_type: {self.api_type}")
+
+            resp = await client.post(url, json=payload)
 
             if resp.status_code != 200:
-                detail = resp.text[:500]
                 raise RuntimeError(
-                    f"{self.display_name} error "
-                    f"{resp.status_code}: {detail}"
+                    f"{self.display_name} synthesis failed "
+                    f"{resp.status_code}: {resp.text[:300]}"
                 )
 
             return resp.content
 
+    # -------------------------
+    # VOICES (FIXED + STRICT)
+    # -------------------------
     async def list_voices(self) -> list[TTSVoice]:
+        async with httpx.AsyncClient(timeout=15.0) as client:
 
-        # Custom providers
-        if self.api_type == "custom":
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{self.base_url}/voices")
+                if self.api_type == "custom":
+                    r = await client.get(f"{self.base_url}/voices")
+                    r.raise_for_status()
+                    return [TTSVoice(**v) for v in r.json()]
 
-                    if resp.status_code == 200:
-                        return [
-                            TTSVoice(
-                                voice_id=v.get("voice_id", ""),
-                                name=v.get("name", "Unknown"),
-                                category=v.get("category", ""),
-                                description=v.get("description", ""),
-                            )
-                            for v in resp.json()
-                        ]
-            except Exception:
-                pass
+                elif self.api_type == "openai":
+                    # ⚠️ fallback strategy instead of fake endpoint assumptions
+                    candidates = [
+                        f"{self.base_url}/v1/voices",
+                        f"{self.base_url}/v1/models",
+                    ]
 
-        # OpenAI-compatible providers
-        elif self.api_type == "openai":
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{self.base_url}/v1/models")
+                    for url in candidates:
+                        try:
+                            r = await client.get(url)
+                            if r.status_code == 200:
+                                data = r.json()
 
-                    if resp.status_code == 200:
-                        data = resp.json().get("data", [])
+                                items = (
+                                    data.get("voices")
+                                    or data.get("data")
+                                    or []
+                                )
 
-                        return [
-                            TTSVoice(
-                                voice_id=m.get("id", ""),
-                                name=m.get("id", "Unknown"),
-                                category="openai-compatible",
-                            )
-                            for m in data
-                        ]
-            except Exception:
-                pass
+                                return [
+                                    TTSVoice(
+                                        voice_id=i.get("id") or i.get("voice_id"),
+                                        name=i.get("name", i.get("id", "voice")),
+                                        category="openai",
+                                    )
+                                    for i in items
+                                ]
+                        except Exception:
+                            continue
 
-        return [
-            TTSVoice(
-                "default",
-                f"{self.display_name} Default",
-                "built-in",
-            )
-        ]
+                return []
 
+            except Exception as e:
+                logger.error("voice_list_failed", provider=self.name, error=str(e))
+                return [
+                    TTSVoice(
+                        "default",
+                        f"{self.display_name} Default",
+                        "fallback",
+                    )
+                ]
+
+    # -------------------------
+    # HEALTH (FIXED)
+    # -------------------------
     async def validate(self) -> tuple[bool, str]:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
 
                 if self.api_type == "openai":
-                    resp = await client.get(f"{self.base_url}/v1/models")
+                    url = f"{self.base_url}/v1/audio/speech"
+                    r = await client.options(url)
                 else:
-                    resp = await client.get(f"{self.base_url}/health")
+                    url = f"{self.base_url}/health"
+                    r = await client.get(url)
 
-                if resp.status_code == 200:
-                    return True, "Ready"
-
-                return False, f"Service returned {resp.status_code}"
-
-        except httpx.ConnectError:
-            return False, f"Service not running at {self.base_url}"
+                return (r.status_code < 500), "reachable"
 
         except Exception as e:
             return False, str(e)
