@@ -1,88 +1,47 @@
 import io
 import os
-import re
-import wave
-import requests
-
+import soundfile as sf
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response, HTMLResponse
-from pydantic import BaseModel
+from fastapi.responses import Response
 
-app = FastAPI(title="Orpheus TTS")
+app = FastAPI(title="Kokoro")
 
-API_URL = os.getenv("ORPHEUS_API_URL")
+MODEL_DIR = os.getenv("MODEL_DIR", "/app/models")
+ONNX = f"{MODEL_DIR}/kokoro-v0_19.onnx"
+VOICES = f"{MODEL_DIR}/voices.bin"
 
-SAMPLE_RATE = 24000
-END_TOKEN = "<custom_token_11>"
-
-
-class Req(BaseModel):
-    text: str
-    voice_id: str = "tara"
+_model = None
 
 
-def format_prompt(text, voice):
-    return f"{voice}: {text}"
-
-
-def generate(text, voice):
-    payload = {
-        "prompt": f"<|audio|>{format_prompt(text, voice)}<|eoa|>",
-        "max_tokens": 4096,
-        "temperature": 0.6,
-        "top_p": 0.9,
-        "stop": ["<|eoa|>", END_TOKEN],
-    }
-
-    r = requests.post(API_URL, json=payload, timeout=120)
-    if r.status_code != 200:
-        raise RuntimeError(r.text)
-
-    data = r.json()
-    text_out = data.get("choices", [{}])[0].get("text", "")
-
-    tokens = [int(x) for x in re.findall(r"<custom_token_(\d+)>", text_out)]
-    if not tokens:
-        raise RuntimeError("No tokens returned")
-
-    # simple PCM placeholder (safe fallback)
-    pcm = bytearray(len(tokens) * 320)
-
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(pcm)
-
-    return buf.getvalue()
+def load():
+    global _model
+    if _model is None:
+        from kokoro_onnx import Kokoro
+        _model = Kokoro(ONNX, VOICES)
+    return _model
 
 
 @app.get("/health")
 def health():
-    try:
-        r = requests.get(API_URL.rsplit("/", 1)[0] + "/health", timeout=5)
-        return {"ok": r.status_code == 200}
-    except:
-        return {"ok": False}
+    return {"ok": os.path.exists(ONNX)}
 
 
 @app.get("/voices")
 def voices():
-    return [
-        {"voice_id": "tara", "name": "Tara"},
-        {"voice_id": "leo", "name": "Leo"},
-    ]
+    return [{"voice_id": "af_bella", "name": "Bella"}]
 
 
 @app.post("/v1/audio/speech")
-async def openai(req: Request):
+async def speech(req: Request):
     body = await req.json()
     text = body.get("input")
-    voice = body.get("voice", "tara")
+    voice = body.get("voice", "af_bella")
+    speed = body.get("speed", 1.0)
 
-    if not text:
-        raise HTTPException(400, "missing input")
+    model = load()
+    audio, sr = model.create(text, voice=voice, speed=speed)
 
-    audio = generate(text, voice)
-    return Response(content=audio, media_type="audio/wav")
+    buf = io.BytesIO()
+    sf.write(buf, audio, sr, format="WAV")
+
+    return Response(buf.getvalue(), media_type="audio/wav")
