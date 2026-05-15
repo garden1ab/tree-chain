@@ -260,57 +260,132 @@ class PiperProvider(BaseTTSProvider):
 class SidecarProvider(BaseTTSProvider):
     """Generic provider that delegates to a sidecar TTS container via HTTP."""
 
-    def __init__(self, name: str, display_name: str, base_url: str,
-                 supports_cloning: bool = False):
+    def __init__(
+        self,
+        name: str,
+        display_name: str,
+        base_url: str,
+        api_type: str = "custom",
+        supports_cloning: bool = False,
+    ):
         self.name = name
         self.display_name = display_name
         self.base_url = base_url.rstrip("/")
+        self.api_type = api_type
         self.supports_voice_cloning = supports_cloning
 
     def audio_format(self) -> str:
         return "wav"
 
     async def generate_speech(self, request: TTSRequest) -> bytes:
-        payload = {"text": request.text, "voice_id": request.voice_id}
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(f"{self.base_url}/generate", json=payload)
+
+            # Custom API (Kokoro / Orpheus)
+            if self.api_type == "custom":
+                payload = {
+                    "text": request.text,
+                    "voice_id": request.voice_id,
+                }
+
+                resp = await client.post(
+                    f"{self.base_url}/generate",
+                    json=payload,
+                )
+
+            # OpenAI-compatible API (Chatterbox)
+            elif self.api_type == "openai":
+                payload = {
+                    "model": request.model or "tts-1",
+                    "input": request.text,
+                    "voice": request.voice_id or "default",
+                    "response_format": "wav",
+                }
+
+                resp = await client.post(
+                    f"{self.base_url}/v1/audio/speech",
+                    json=payload,
+                )
+
+            else:
+                raise RuntimeError(f"Unknown API type: {self.api_type}")
+
             if resp.status_code != 200:
-                detail = resp.text[:300]
-                raise RuntimeError(f"{self.display_name} error {resp.status_code}: {detail}")
+                detail = resp.text[:500]
+                raise RuntimeError(
+                    f"{self.display_name} error "
+                    f"{resp.status_code}: {detail}"
+                )
+
             return resp.content
 
     async def list_voices(self) -> list[TTSVoice]:
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.base_url}/voices")
-                if resp.status_code == 200:
-                    return [
-                        TTSVoice(
-                            voice_id=v.get("voice_id", ""),
-                            name=v.get("name", "Unknown"),
-                            category=v.get("category", ""),
-                            description=v.get("description", ""),
-                        )
-                        for v in resp.json()
-                    ]
-        except Exception:
-            pass
-        return [TTSVoice("default", f"{self.display_name} Default", "built-in")]
+
+        # Custom providers
+        if self.api_type == "custom":
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(f"{self.base_url}/voices")
+
+                    if resp.status_code == 200:
+                        return [
+                            TTSVoice(
+                                voice_id=v.get("voice_id", ""),
+                                name=v.get("name", "Unknown"),
+                                category=v.get("category", ""),
+                                description=v.get("description", ""),
+                            )
+                            for v in resp.json()
+                        ]
+            except Exception:
+                pass
+
+        # OpenAI-compatible providers
+        elif self.api_type == "openai":
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(f"{self.base_url}/v1/models")
+
+                    if resp.status_code == 200:
+                        data = resp.json().get("data", [])
+
+                        return [
+                            TTSVoice(
+                                voice_id=m.get("id", ""),
+                                name=m.get("id", "Unknown"),
+                                category="openai-compatible",
+                            )
+                            for m in data
+                        ]
+            except Exception:
+                pass
+
+        return [
+            TTSVoice(
+                "default",
+                f"{self.display_name} Default",
+                "built-in",
+            )
+        ]
 
     async def validate(self) -> tuple[bool, str]:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{self.base_url}/health")
+
+                if self.api_type == "openai":
+                    resp = await client.get(f"{self.base_url}/v1/models")
+                else:
+                    resp = await client.get(f"{self.base_url}/health")
+
                 if resp.status_code == 200:
-                    data = resp.json()
-                    gpu = data.get("gpu", False)
-                    return True, f"Ready (GPU: {gpu})"
+                    return True, "Ready"
+
                 return False, f"Service returned {resp.status_code}"
+
         except httpx.ConnectError:
             return False, f"Service not running at {self.base_url}"
+
         except Exception as e:
             return False, str(e)
-
 
 # ── Registry ───────────────────────────────────────────
 
