@@ -30,10 +30,17 @@ class TTSRequest:
     text: str
     voice_id: str
     model_id: str = ""
+    # ElevenLabs-specific
     stability: float = 0.5
     similarity_boost: float = 0.75
     style: float = 0.0
     use_speaker_boost: bool = True
+    # Chatterbox-specific (also passed to other sidecars if supported)
+    exaggeration: float = 0.5
+    cfg_weight: float = 0.5
+    temperature: float = 0.8
+    seed: int = 0
+    language: str = "en"  # ISO 639-1 code; "en", "fr", "es", "de", "ja", "zh", etc.
 
 
 # ── Base class ──────────────────────────────────────────
@@ -289,11 +296,24 @@ class SidecarProvider(BaseTTSProvider):
             payload = {
                 "input": request.text,
                 "voice": request.voice_id or "alloy",
+                "exaggeration": request.exaggeration,
+                "cfg_weight": request.cfg_weight,
+                "temperature": request.temperature,
+                "seed": request.seed,
+                "language": request.language,
             }
         else:
-            # Custom Kokoro/Orpheus endpoint
+            # Custom endpoint — pass all params, server picks what it understands
             endpoint = f"{self.base_url}/generate"
-            payload = {"text": request.text, "voice_id": request.voice_id}
+            payload = {
+                "text": request.text,
+                "voice_id": request.voice_id,
+                "exaggeration": request.exaggeration,
+                "cfg_weight": request.cfg_weight,
+                "temperature": request.temperature,
+                "seed": request.seed,
+                "language": request.language,
+            }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(endpoint, json=payload)

@@ -38,7 +38,8 @@ services:
 
   # ── 1. CHATTERBOX (Priority #1 — ElevenLabs quality) ──────────
   # Full ResembleAI feature set + persistent voice library
-  # Voice cloning, emotion/exaggeration, CFG, temperature, seed control
+  # Voice cloning, emotion/exaggeration, CFG, temperature, seed, multilingual (23 languages)
+  # Uses GPU by default (auto-detects, falls back to CPU if no GPU/NVIDIA Container Toolkit)
   # Web UI: http://localhost:4123  (tabs: Generate | Voice Library)
   # API:    http://localhost:4123/generate (custom) or /v1/audio/speech (OpenAI)
   chatterbox:
@@ -52,9 +53,17 @@ services:
       - PORT=4123
       - VOICES_DIR=/app/voices
       - MODELS_DIR=/app/models
+      - DEVICE=auto                       # auto picks 'cuda' if GPU present, else 'cpu'
     volumes:
       - chatterbox_voices:/app/voices    # cloned voices persist here
       - chatterbox_models:/app/models    # model cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     profiles: [chatterbox, all]
 

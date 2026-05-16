@@ -37,26 +37,48 @@ VOICES_META = VOICES_DIR / "voices.json"
 VOICES_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = os.environ.get("DEVICE", "auto")
+if DEVICE == "auto":
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Languages: 'en' uses base model, anything else uses ChatterboxMultilingualTTS
+SUPPORTED_LANGUAGES = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+    "it": "Italian", "pt": "Portuguese", "pl": "Polish", "ru": "Russian",
+    "nl": "Dutch", "tr": "Turkish", "ar": "Arabic", "zh": "Chinese",
+    "ja": "Japanese", "ko": "Korean", "hi": "Hindi", "id": "Indonesian",
+    "vi": "Vietnamese", "th": "Thai", "uk": "Ukrainian", "cs": "Czech",
+    "el": "Greek", "ms": "Malay", "ro": "Romanian",
+}
+
 print(f"🚀 Running on device: {DEVICE}")
+print(f"   GPU available: {torch.cuda.is_available()}")
 
 _model = None
+_mtl_model = None
 
 
-def get_model():
-    """Lazy-load the Chatterbox model on first use."""
-    global _model
-    if _model is None:
-        print("Loading Chatterbox model...")
-        from chatterbox.tts import ChatterboxTTS
-        _model = ChatterboxTTS.from_pretrained(DEVICE)
-        if hasattr(_model, 'to'):
+def get_model(language: str = "en"):
+    """Lazy-load the appropriate Chatterbox model (base for EN, multilingual otherwise)."""
+    global _model, _mtl_model
+    if language == "en":
+        if _model is None:
+            print("Loading Chatterbox base model...")
+            from chatterbox.tts import ChatterboxTTS
+            _model = ChatterboxTTS.from_pretrained(DEVICE)
+            print(f"Base model loaded on {DEVICE}")
+        return _model, False
+    else:
+        if _mtl_model is None:
+            print(f"Loading Chatterbox multilingual model for '{language}'...")
             try:
-                _model.to(DEVICE)
-            except Exception:
-                pass
-        print(f"Model loaded on {DEVICE}")
-    return _model
+                from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+                _mtl_model = ChatterboxMultilingualTTS.from_pretrained(DEVICE)
+                print(f"Multilingual model loaded on {DEVICE}")
+            except ImportError:
+                print("Multilingual model not available, falling back to base")
+                return get_model("en")
+        return _mtl_model, True
 
 
 def set_seed(seed: int):
@@ -97,14 +119,16 @@ class GenerateRequest(BaseModel):
     cfg_weight: float = 0.5
     temperature: float = 0.8
     seed: int = 0
+    language: str = "en"
 
 
 # ── Core generation ──
 def synthesize(text: str, voice_id: str = "default",
                exaggeration: float = 0.5, cfg_weight: float = 0.5,
-               temperature: float = 0.8, seed: int = 0) -> bytes:
+               temperature: float = 0.8, seed: int = 0,
+               language: str = "en") -> bytes:
     """Generate WAV bytes from text."""
-    model = get_model()
+    model, is_multilingual = get_model(language)
 
     if seed and seed != 0:
         set_seed(int(seed))
@@ -114,6 +138,8 @@ def synthesize(text: str, voice_id: str = "default",
         "cfg_weight": float(cfg_weight),
         "temperature": float(temperature),
     }
+    if is_multilingual:
+        kwargs["language_id"] = language
 
     # Resolve voice: if it's a saved cloned voice, use its reference audio
     meta = load_voices_meta()
@@ -221,12 +247,18 @@ async def get_voice_sample(voice_id: str):
     return FileResponse(str(f))
 
 
+@app.get("/languages")
+async def list_languages():
+    return [{"code": k, "name": v} for k, v in SUPPORTED_LANGUAGES.items()]
+
+
 @app.post("/generate")
 async def generate(req: GenerateRequest):
     try:
         audio = synthesize(
             req.text, req.voice_id,
             req.exaggeration, req.cfg_weight, req.temperature, req.seed,
+            req.language,
         )
         return Response(content=audio, media_type="audio/wav")
     except Exception as e:
@@ -248,6 +280,7 @@ async def openai_speech(request: Request):
             float(body.get("cfg_weight", 0.5)),
             float(body.get("temperature", 0.8)),
             int(body.get("seed", 0)),
+            body.get("language", "en"),
         )
         return Response(content=audio, media_type="audio/wav")
     except Exception as e:
@@ -326,6 +359,33 @@ async def web_ui():
 
     <label>Voice</label>
     <select id="voice"><option>Loading...</option></select>
+
+    <label>Language</label>
+    <select id="language">
+      <option value="en" selected>English</option>
+      <option value="es">Spanish</option>
+      <option value="fr">French</option>
+      <option value="de">German</option>
+      <option value="it">Italian</option>
+      <option value="pt">Portuguese</option>
+      <option value="pl">Polish</option>
+      <option value="ru">Russian</option>
+      <option value="nl">Dutch</option>
+      <option value="tr">Turkish</option>
+      <option value="ar">Arabic</option>
+      <option value="zh">Chinese</option>
+      <option value="ja">Japanese</option>
+      <option value="ko">Korean</option>
+      <option value="hi">Hindi</option>
+      <option value="id">Indonesian</option>
+      <option value="vi">Vietnamese</option>
+      <option value="th">Thai</option>
+      <option value="uk">Ukrainian</option>
+      <option value="cs">Czech</option>
+      <option value="el">Greek</option>
+      <option value="ms">Malay</option>
+      <option value="ro">Romanian</option>
+    </select>
 
     <div class="slider-row">
       <label>Exaggeration</label>
@@ -477,6 +537,7 @@ async function generate() {
       body: JSON.stringify({
         text: document.getElementById('text').value,
         voice_id: document.getElementById('voice').value,
+        language: document.getElementById('language').value,
         exaggeration: parseFloat(document.getElementById('exag').value),
         cfg_weight: parseFloat(document.getElementById('cfg').value),
         temperature: parseFloat(document.getElementById('temp').value),

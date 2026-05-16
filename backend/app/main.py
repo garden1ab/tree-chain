@@ -53,6 +53,33 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("dialogueforge.startup", debug=settings.debug)
     await init_db()
+
+    # Auto-import ELEVENLABS_API_KEY from env into database if not already there
+    if settings.elevenlabs_api_key:
+        try:
+            from sqlalchemy import select
+            from app.db import async_session
+            from app.models.database import StoredApiKey
+            from app.core.security import encrypt_api_key
+            async with async_session() as db:
+                existing = await db.execute(
+                    select(StoredApiKey).where(
+                        StoredApiKey.provider == "elevenlabs",
+                        StoredApiKey.is_active == True,
+                    ).limit(1)
+                )
+                if not existing.scalar_one_or_none():
+                    db.add(StoredApiKey(
+                        provider="elevenlabs",
+                        label="From environment",
+                        encrypted_key=encrypt_api_key(settings.elevenlabs_api_key),
+                        is_active=True,
+                    ))
+                    await db.commit()
+                    logger.info("Imported ELEVENLABS_API_KEY from environment into database")
+        except Exception as e:
+            logger.warning("Failed to auto-import API key from env", error=str(e))
+
     # Register all TTS providers
     from app.services.tts_providers import init_providers
     init_providers()

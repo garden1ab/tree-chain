@@ -1,39 +1,92 @@
-"""Audio effects preview routes."""
+"""Audio effects preview and custom preset routes."""
 
 import base64
 import os
 import tempfile
 from fastapi import APIRouter, HTTPException
-from app.audio.effects import apply_effects, EFFECT_PRESETS
+from pydantic import BaseModel
+from app.audio.effects import (
+    apply_effects, EFFECT_PRESETS, get_all_presets,
+    load_custom_presets, save_custom_preset, delete_custom_preset,
+)
 from app.schemas import EffectPreviewRequest
 
 router = APIRouter(prefix="/effects", tags=["effects"])
 
 
+PRESET_DESCRIPTIONS = {
+    "radio": "Military/aviation radio comms",
+    "helmet": "Muffled helmet comms with echo",
+    "robot": "Synthetic robotic voice",
+    "telephone": "Old landline telephone quality",
+    "megaphone": "Loud, overdriven megaphone",
+    "vhs": "Warm, degraded VHS tape",
+    "corrupted_ai": "Glitchy, broken AI voice",
+    "deep_space": "Distant, echoing space transmission",
+    "glitch": "Heavy digital artifacts",
+    "alien": "Pitch-shifted otherworldly voice",
+    "whisper": "Hushed, intimate whisper",
+    "underwater": "Submerged, muffled underwater",
+    "demonic": "Deep, ominous demonic voice",
+}
+
+
 @router.get("/presets")
 async def list_presets():
-    """List available audio effect presets."""
+    """List all audio effect presets (built-in + custom)."""
+    custom = load_custom_presets()
+    all_presets = get_all_presets()
     return {
-        "presets": list(EFFECT_PRESETS.keys()),
-        "descriptions": {
-            "radio": "Military/aviation radio communication",
-            "helmet": "Muffled helmet comms with slight echo",
-            "robot": "Synthetic robotic voice processing",
-            "telephone": "Old landline telephone quality",
-            "megaphone": "Loud, overdriven megaphone",
-            "vhs": "Warm, degraded VHS tape quality",
-            "corrupted_ai": "Glitchy, broken AI voice",
-            "deep_space": "Distant, echoing space transmission",
-            "glitch": "Heavy digital artifacts and stuttering",
-            "alien": "Pitch-shifted otherworldly voice",
-        },
+        "presets": list(all_presets.keys()),
+        "built_in": list(EFFECT_PRESETS.keys()),
+        "custom": list(custom.keys()),
+        "descriptions": PRESET_DESCRIPTIONS,
     }
+
+
+class CustomPresetCreate(BaseModel):
+    name: str
+    filter_chain: str
+    description: str = ""
+
+
+@router.get("/custom")
+async def list_custom_presets():
+    """List user-defined custom effects."""
+    return load_custom_presets()
+
+
+@router.post("/custom")
+async def create_custom_preset(body: CustomPresetCreate):
+    """Add or update a custom audio effect preset.
+
+    filter_chain is a comma-separated FFmpeg filter string, e.g.:
+       'highpass=f=300,lowpass=f=3400,volume=1.2'
+
+    Filter reference: https://ffmpeg.org/ffmpeg-filters.html#Audio-Filters
+    """
+    name = body.name.lower().strip().replace(" ", "_")
+    if not name:
+        raise HTTPException(400, "Name cannot be empty")
+    if name in EFFECT_PRESETS:
+        raise HTTPException(400, f"'{name}' is a built-in preset and cannot be overridden")
+    save_custom_preset(name, body.filter_chain)
+    return {"name": name, "filter_chain": body.filter_chain}
+
+
+@router.delete("/custom/{name}")
+async def remove_custom_preset(name: str):
+    """Delete a custom preset by name."""
+    if delete_custom_preset(name):
+        return {"deleted": name}
+    raise HTTPException(404, f"Custom preset '{name}' not found")
 
 
 @router.post("/preview")
 async def preview_effect(req: EffectPreviewRequest):
     """Apply an effect to audio and return the result as base64."""
-    if req.preset not in EFFECT_PRESETS and req.preset != "none":
+    all_presets = get_all_presets()
+    if req.preset not in all_presets and req.preset != "none":
         raise HTTPException(400, f"Unknown preset: {req.preset}")
 
     try:

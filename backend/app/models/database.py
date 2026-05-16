@@ -75,10 +75,18 @@ class CharacterVoiceConfig(Base):
     tts_provider = Column(String(50), default="elevenlabs")
     voice_id = Column(String(255), default="")
     model_id = Column(String(255), default="eleven_multilingual_v2")
+    # ElevenLabs sliders
     stability = Column(Float, default=0.5)
     similarity_boost = Column(Float, default=0.75)
     style = Column(Float, default=0.0)
     use_speaker_boost = Column(Boolean, default=True)
+    # Chatterbox/local model sliders
+    exaggeration = Column(Float, default=0.5)
+    cfg_weight = Column(Float, default=0.5)
+    temperature = Column(Float, default=0.8)
+    seed = Column(Integer, default=0)
+    language = Column(String(10), default="en")
+    # Effects
     effects_preset = Column(String(100), default="none")
     effects_config = Column(JSON, default=dict)
     volume_adjustment = Column(Float, default=0.0)

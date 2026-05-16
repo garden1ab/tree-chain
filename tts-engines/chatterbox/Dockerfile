@@ -6,11 +6,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install PyTorch first (CPU version - smaller, works without GPU)
+# Install PyTorch with CUDA 12.1 support (works with newer GPUs)
+# If no GPU available, code falls back to CPU automatically
 RUN pip install --no-cache-dir \
     torch==2.6.0 \
     torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cpu
+    --index-url https://download.pytorch.org/whl/cu121
 
 # Install Chatterbox + web dependencies
 RUN pip install --no-cache-dir \
@@ -25,5 +26,7 @@ COPY server.py .
 RUN mkdir -p /app/voices /app/models
 
 EXPOSE 4123
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "4123"]
 
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "4123"]

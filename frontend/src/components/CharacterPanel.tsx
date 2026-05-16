@@ -110,11 +110,20 @@ function CharacterRow({ config, voices, providers, providerVoices, onLoadProvide
     ? localVoices.find((v) => v.voice_id === config.voice_id)
     : voices.find((v) => v.voice_id === config.voice_id);
   const [manualId, setManualId] = useState(false);
+  const [effectPresets, setEffectPresets] = useState<string[]>([]);
 
   // Load provider voices when provider changes
   useEffect(() => {
     if (isLocal) onLoadProviderVoices(currentProvider);
   }, [currentProvider]);
+
+  // Load available effect presets (built-in + custom) once
+  useEffect(() => {
+    fetch('/api/effects/presets')
+      .then((r) => r.json())
+      .then((d) => setEffectPresets(d.presets || []))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="panel overflow-hidden">
@@ -206,28 +215,97 @@ function CharacterRow({ config, voices, providers, providerVoices, onLoadProvide
       {/* Expanded settings */}
       {expanded && (
         <div className="border-t border-surface-800/60 p-4 grid grid-cols-2 gap-x-8 gap-y-4 animate-slide-up">
-          <SliderControl label="Stability" value={config.stability} onChange={(v) => onUpdate({ stability: v })} />
-          <SliderControl label="Similarity Boost" value={config.similarity_boost} onChange={(v) => onUpdate({ similarity_boost: v })} />
-          <SliderControl label="Style Exaggeration" value={config.style} onChange={(v) => onUpdate({ style: v })} />
+          {config.tts_provider === 'elevenlabs' ? (
+            <>
+              <SliderControl label="Stability" value={config.stability} onChange={(v) => onUpdate({ stability: v })} />
+              <SliderControl label="Similarity Boost" value={config.similarity_boost} onChange={(v) => onUpdate({ similarity_boost: v })} />
+              <SliderControl label="Style Exaggeration" value={config.style} onChange={(v) => onUpdate({ style: v })} />
+            </>
+          ) : (
+            <>
+              <SliderControl
+                label="Exaggeration (emotion)"
+                value={config.exaggeration}
+                min={0.25} max={2.0} step={0.05}
+                onChange={(v) => onUpdate({ exaggeration: v })}
+              />
+              <SliderControl
+                label="CFG / Pace"
+                value={config.cfg_weight}
+                min={0.2} max={1.0} step={0.05}
+                onChange={(v) => onUpdate({ cfg_weight: v })}
+              />
+              <SliderControl
+                label="Temperature"
+                value={config.temperature}
+                min={0.05} max={5.0} step={0.05}
+                onChange={(v) => onUpdate({ temperature: v })}
+              />
+              <div>
+                <label className="text-xs text-surface-400 block mb-1">Random Seed (0 = random)</label>
+                <input
+                  type="number"
+                  className="input-field text-xs"
+                  value={config.seed}
+                  onChange={(e) => onUpdate({ seed: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-surface-400 block mb-1">Language</label>
+                <select
+                  className="input-field text-xs"
+                  value={config.language}
+                  onChange={(e) => onUpdate({ language: e.target.value })}
+                >
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                  <option value="it">Italian</option>
+                  <option value="pt">Portuguese</option>
+                  <option value="pl">Polish</option>
+                  <option value="ru">Russian</option>
+                  <option value="nl">Dutch</option>
+                  <option value="tr">Turkish</option>
+                  <option value="ar">Arabic</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ja">Japanese</option>
+                  <option value="ko">Korean</option>
+                  <option value="hi">Hindi</option>
+                  <option value="id">Indonesian</option>
+                  <option value="vi">Vietnamese</option>
+                  <option value="th">Thai</option>
+                  <option value="uk">Ukrainian</option>
+                  <option value="cs">Czech</option>
+                  <option value="el">Greek</option>
+                  <option value="ms">Malay</option>
+                  <option value="ro">Romanian</option>
+                </select>
+              </div>
+            </>
+          )}
+
           <SliderControl label="Volume Adjustment" value={config.volume_adjustment} min={-10} max={10} step={0.5} onChange={(v) => onUpdate({ volume_adjustment: v })} />
 
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-surface-400">Speaker Boost</label>
-            <button
-              className={clsx(
-                'w-10 h-5 rounded-full transition-colors relative',
-                config.use_speaker_boost ? 'bg-forge-600' : 'bg-surface-700'
-              )}
-              onClick={() => onUpdate({ use_speaker_boost: !config.use_speaker_boost })}
-            >
-              <div className={clsx(
-                'w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform',
-                config.use_speaker_boost ? 'translate-x-5' : 'translate-x-0.5'
-              )} />
-            </button>
-          </div>
+          {config.tts_provider === 'elevenlabs' && (
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-surface-400">Speaker Boost</label>
+              <button
+                className={clsx(
+                  'w-10 h-5 rounded-full transition-colors relative',
+                  config.use_speaker_boost ? 'bg-forge-600' : 'bg-surface-700'
+                )}
+                onClick={() => onUpdate({ use_speaker_boost: !config.use_speaker_boost })}
+              >
+                <div className={clsx(
+                  'w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform',
+                  config.use_speaker_boost ? 'translate-x-5' : 'translate-x-0.5'
+                )} />
+              </button>
+            </div>
+          )}
 
-          <div>
+          <div className="col-span-2">
             <label className="text-xs text-surface-400 block mb-1">Effects Preset</label>
             <select
               className="input-field text-xs"
@@ -235,16 +313,11 @@ function CharacterRow({ config, voices, providers, providerVoices, onLoadProvide
               onChange={(e) => onUpdate({ effects_preset: e.target.value })}
             >
               <option value="none">None</option>
-              <option value="radio">Radio</option>
-              <option value="helmet">Helmet</option>
-              <option value="robot">Robot</option>
-              <option value="telephone">Telephone</option>
-              <option value="megaphone">Megaphone</option>
-              <option value="vhs">VHS</option>
-              <option value="corrupted_ai">Corrupted AI</option>
-              <option value="deep_space">Deep Space</option>
-              <option value="glitch">Glitch</option>
-              <option value="alien">Alien</option>
+              {effectPresets.map((p: string) => (
+                <option key={p} value={p}>
+                  {p.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                </option>
+              ))}
             </select>
           </div>
         </div>

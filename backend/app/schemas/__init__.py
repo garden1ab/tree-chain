@@ -38,9 +38,19 @@ class CharacterVoiceConfigSchema(BaseModel):
     similarity_boost: float = Field(0.75, ge=0.0, le=1.0)
     style: float = Field(0.0, ge=0.0, le=1.0)
     use_speaker_boost: bool = True
+    # Chatterbox sliders (also map to other local models when applicable)
+    exaggeration: float = Field(0.5, ge=0.25, le=2.0)
+    cfg_weight: float = Field(0.5, ge=0.2, le=1.0)
+    temperature: float = Field(0.8, ge=0.05, le=5.0)
+    seed: int = 0
+    language: str = "en"
+    # Effects
     effects_preset: str = "none"
     effects_config: dict = {}
     volume_adjustment: float = Field(0.0, ge=-20.0, le=20.0)
+
+    class Config:
+        from_attributes = True
 
 
 class CharacterVoiceConfigUpdate(BaseModel):

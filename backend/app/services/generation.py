@@ -185,6 +185,11 @@ class GenerationService:
                             similarity_boost=cfg.similarity_boost,
                             style=cfg.style,
                             use_speaker_boost=cfg.use_speaker_boost,
+                            exaggeration=getattr(cfg, "exaggeration", 0.5) or 0.5,
+                            cfg_weight=getattr(cfg, "cfg_weight", 0.5) or 0.5,
+                            temperature=getattr(cfg, "temperature", 0.8) or 0.8,
+                            seed=getattr(cfg, "seed", 0) or 0,
+                            language=getattr(cfg, "language", "en") or "en",
                         )
                         audio_bytes = await provider.generate_speech(tts_request)
                         audio_fmt = provider.audio_format()
