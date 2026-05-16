@@ -258,135 +258,115 @@ class PiperProvider(BaseTTSProvider):
 # ── Sidecar provider (calls a container over HTTP) ─────
 
 class SidecarProvider(BaseTTSProvider):
-    """Generic HTTP-based TTS provider (custom or OpenAI-compatible)."""
+    """Generic provider that delegates to a sidecar TTS container via HTTP.
 
-    def __init__(
-        self,
-        name: str,
-        display_name: str,
-        base_url: str,
-        api_type: str = "custom",
-        supports_cloning: bool = False,
-    ):
+    Supports two API styles:
+    - 'openai': Chatterbox-style — POST /v1/audio/speech with {"input": text, "voice": id}
+    - 'custom': Our Kokoro/Orpheus servers — POST /generate with {"text": text, "voice_id": id}
+    """
+
+    # Hardcoded voice lists for services that don't expose a /voices endpoint
+    CHATTERBOX_VOICES = [
+        ("alloy", "Alloy"), ("echo", "Echo"), ("fable", "Fable"),
+        ("onyx", "Onyx"), ("nova", "Nova"), ("shimmer", "Shimmer"),
+    ]
+
+    def __init__(self, name: str, display_name: str, base_url: str,
+                 supports_cloning: bool = False, api_style: str = "custom"):
         self.name = name
         self.display_name = display_name
         self.base_url = base_url.rstrip("/")
-        self.api_type = api_type
         self.supports_voice_cloning = supports_cloning
+        self.api_style = api_style  # 'openai' or 'custom'
 
-    # -------------------------
-    # REQUIRED
-    # -------------------------
     def audio_format(self) -> str:
         return "wav"
 
-    # -------------------------
-    # SYNTHESIS
-    # -------------------------
     async def generate_speech(self, request: TTSRequest) -> bytes:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        if self.api_style == "openai":
+            # Chatterbox-style OpenAI-compatible endpoint
+            endpoint = f"{self.base_url}/v1/audio/speech"
+            payload = {
+                "input": request.text,
+                "voice": request.voice_id or "alloy",
+            }
+        else:
+            # Custom Kokoro/Orpheus endpoint
+            endpoint = f"{self.base_url}/generate"
+            payload = {"text": request.text, "voice_id": request.voice_id}
 
-            if self.api_type == "custom":
-                url = f"{self.base_url}/generate"
-                payload = {
-                    "text": request.text,
-                    "voice_id": request.voice_id,
-                }
-
-            elif self.api_type == "openai":
-                url = f"{self.base_url}/v1/audio/speech"
-                payload = {
-                    "model": request.model_id or "tts-1",
-                    "input": request.text,
-                    "voice": request.voice_id,
-                    "response_format": self.audio_format(),
-                }
-
-            else:
-                raise RuntimeError(f"Unknown api_type: {self.api_type}")
-
-            resp = await client.post(url, json=payload)
-
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.post(endpoint, json=payload)
             if resp.status_code != 200:
-                raise RuntimeError(
-                    f"{self.display_name} synthesis failed "
-                    f"{resp.status_code}: {resp.text[:300]}"
-                )
-
+                detail = resp.text[:300]
+                raise RuntimeError(f"{self.display_name} error {resp.status_code}: {detail}")
             return resp.content
 
-    # -------------------------
-    # VOICES (FIXED + STRICT)
-    # -------------------------
     async def list_voices(self) -> list[TTSVoice]:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-
+        # Chatterbox: try /v1/audio/voices, fall back to hardcoded OpenAI voices
+        if self.api_style == "openai":
             try:
-                if self.api_type == "custom":
-                    r = await client.get(f"{self.base_url}/voices")
-                    r.raise_for_status()
-                    return [TTSVoice(**v) for v in r.json()]
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(f"{self.base_url}/v1/audio/voices")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # response could be {"voices": [...]} or just a list
+                        voices = data.get("voices", data) if isinstance(data, dict) else data
+                        result = []
+                        for v in voices:
+                            if isinstance(v, dict):
+                                result.append(TTSVoice(
+                                    voice_id=v.get("voice_id") or v.get("value") or v.get("name", ""),
+                                    name=v.get("label") or v.get("name", "Unknown"),
+                                    category="built-in",
+                                    description="",
+                                ))
+                            elif isinstance(v, str):
+                                result.append(TTSVoice(v, v.title(), "built-in"))
+                        if result:
+                            return result
+            except Exception:
+                pass
+            # Hardcoded fallback for Chatterbox
+            return [TTSVoice(vid, name, "built-in") for vid, name in self.CHATTERBOX_VOICES]
 
-                elif self.api_type == "openai":
-                    # ⚠️ fallback strategy instead of fake endpoint assumptions
-                    candidates = [
-                        f"{self.base_url}/v1/voices",
-                        f"{self.base_url}/v1/models",
+        # Custom servers (Kokoro/Orpheus): use /voices
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.base_url}/voices")
+                if resp.status_code == 200:
+                    return [
+                        TTSVoice(
+                            voice_id=v.get("voice_id", ""),
+                            name=v.get("name", "Unknown"),
+                            category=v.get("category", ""),
+                            description=v.get("description", ""),
+                        )
+                        for v in resp.json()
                     ]
+        except Exception:
+            pass
+        return [TTSVoice("default", f"{self.display_name} Default", "built-in")]
 
-                    for url in candidates:
-                        try:
-                            r = await client.get(url)
-                            if r.status_code == 200:
-                                data = r.json()
-
-                                items = (
-                                    data.get("voices")
-                                    or data.get("data")
-                                    or []
-                                )
-
-                                return [
-                                    TTSVoice(
-                                        voice_id=i.get("id") or i.get("voice_id"),
-                                        name=i.get("name", i.get("id", "voice")),
-                                        category="openai",
-                                    )
-                                    for i in items
-                                ]
-                        except Exception:
-                            continue
-
-                return []
-
-            except Exception as e:
-                logger.error("voice_list_failed", provider=self.name, error=str(e))
-                return [
-                    TTSVoice(
-                        "default",
-                        f"{self.display_name} Default",
-                        "fallback",
-                    )
-                ]
-
-    # -------------------------
-    # HEALTH (FIXED)
-    # -------------------------
     async def validate(self) -> tuple[bool, str]:
+        # Chatterbox health endpoint differs from our custom servers
+        health_url = f"{self.base_url}/health" if self.api_style == "custom" else f"{self.base_url}/health"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-
-                if self.api_type == "openai":
-                    url = f"{self.base_url}/v1/audio/speech"
-                    r = await client.options(url)
-                else:
-                    url = f"{self.base_url}/health"
-                    r = await client.get(url)
-
-                return (r.status_code < 500), "reachable"
-
+                resp = await client.get(health_url)
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        gpu = data.get("gpu", data.get("device", "cpu"))
+                        return True, f"Ready ({gpu})"
+                    except Exception:
+                        return True, "Ready"
+                return False, f"Service returned {resp.status_code}"
+        except httpx.ConnectError:
+            return False, f"Service not running at {self.base_url}"
         except Exception as e:
             return False, str(e)
+
 
 # ── Registry ───────────────────────────────────────────
 
@@ -435,22 +415,26 @@ def init_providers(api_key: str = ""):
         display_name="Chatterbox (Best Quality)",
         base_url=os.environ.get("CHATTERBOX_URL", "http://host.docker.internal:4123"),
         supports_cloning=True,
+        api_style="openai",
     ))
     register_provider(SidecarProvider(
         name="orpheus",
         display_name="Orpheus (Emotion Control)",
         base_url=os.environ.get("ORPHEUS_URL", "http://host.docker.internal:8899"),
         supports_cloning=False,
+        api_style="custom",
     ))
     register_provider(SidecarProvider(
         name="kokoro",
         display_name="Kokoro (Fast, CPU)",
         base_url=os.environ.get("KOKORO_URL", "http://host.docker.internal:8880"),
         supports_cloning=False,
+        api_style="custom",
     ))
     register_provider(SidecarProvider(
         name="xtts",
         display_name="XTTS v2 (Multilingual)",
         base_url=os.environ.get("XTTS_URL", "http://host.docker.internal:5500"),
         supports_cloning=True,
+        api_style="custom",
     ))

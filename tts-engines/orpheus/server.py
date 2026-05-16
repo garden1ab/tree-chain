@@ -8,8 +8,6 @@ import wave
 import json
 import time
 import requests
-import numpy as np
-import torch
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response, JSONResponse
@@ -82,8 +80,8 @@ def tokens_to_audio(token_ids: list[int]) -> bytes:
                     if sample_idx < len(pcm):
                         pcm[sample_idx] = int(val * 16000 * np.sin(2 * np.pi * 440 * sample_idx / SAMPLE_RATE))
         return pcm.tobytes()
-    except ImportError as e:
-        raise RuntimeError(f"Audio backend missing dependencies: {str(e)}")
+    except ImportError:
+        return b""
 
 
 def generate_speech(text: str, voice: str, temperature: float = 0.6, top_p: float = 0.9) -> bytes:
@@ -110,13 +108,7 @@ def generate_speech(text: str, voice: str, temperature: float = 0.6, top_p: floa
         # Extract token IDs from completion
         token_ids = []
         for match in re.finditer(r"<custom_token_(\d+)>", completion):
-            token_ids = [
-                int(x)
-                for x in re.findall(r"<custom_token_(\d+)>", completion or "")
-            ]
-
-        if len(token_ids) < 3:
-            raise RuntimeError(f"Too few tokens generated: {len(token_ids)}")
+            token_ids.append(int(match.group(1)))
 
         if not token_ids:
             raise RuntimeError("No audio tokens generated")
@@ -135,24 +127,18 @@ def generate_speech(text: str, voice: str, temperature: float = 0.6, top_p: floa
             wf.writeframes(audio_data)
         return buf.getvalue()
 
-    except requests.RequestException as e:
-        raise RuntimeError(f"Orpheus LLM connection failed: {str(e)}")
+    except requests.ConnectionError:
+        raise RuntimeError("Cannot reach Orpheus LLM server. Is orpheus-llm running?")
 
 
 @app.get("/health")
 async def health():
     try:
-        base = API_URL.split("/v1")[0]
-        resp = requests.get(f"{base}/v1/models", timeout=5)
+        resp = requests.get(API_URL.replace("/v1/completions", "/health"), timeout=5)
         llm_ok = resp.status_code == 200
     except Exception:
         llm_ok = False
-
-    return {
-        "status": "ok" if llm_ok else "llm_unavailable",
-        "provider": "orpheus",
-        "llm_connected": llm_ok
-    }
+    return {"status": "ok" if llm_ok else "llm_unavailable", "provider": "orpheus", "llm_connected": llm_ok}
 
 
 @app.get("/voices")
@@ -172,13 +158,8 @@ async def generate(req: GenerateRequest):
 @app.post("/v1/audio/speech")
 async def openai_speech(request: Request):
     body = await request.json()
-
-    text = body.get("input") or body.get("text")
+    text = body.get("input", "")
     voice = body.get("voice", "tara")
-
-    if not text:
-        raise HTTPException(400, detail="Missing 'input' text")
-
     try:
         audio = generate_speech(text, voice)
         return Response(content=audio, media_type="audio/wav")
