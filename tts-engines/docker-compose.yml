@@ -37,24 +37,24 @@
 services:
 
   # ── 1. CHATTERBOX (Priority #1 — ElevenLabs quality) ──────────
-  # Voice cloning, emotion control, multilingual, 0.5B params
-  # CPU version works without GPU but is slower
-  # Web UI: http://localhost:4123
-  # API:    http://localhost:4123/v1/audio/speech (OpenAI-compatible)
+  # Full ResembleAI feature set + persistent voice library
+  # Voice cloning, emotion/exaggeration, CFG, temperature, seed control
+  # Web UI: http://localhost:4123  (tabs: Generate | Voice Library)
+  # API:    http://localhost:4123/generate (custom) or /v1/audio/speech (OpenAI)
   chatterbox:
-    image: travisvn/chatterbox-tts-api:latest-cpu
+    build:
+      context: ./chatterbox
+      dockerfile: Dockerfile
     ports:
       - "4123:4123"
     environment:
-      - PORT=4123
       - HOST=0.0.0.0
-      - EXAGGERATION=0.5
-      - CFG_WEIGHT=0.5
-      - TEMPERATURE=0.8
-      - DEVICE=auto
+      - PORT=4123
+      - VOICES_DIR=/app/voices
+      - MODELS_DIR=/app/models
     volumes:
-      - chatterbox_models:/cache
-      - chatterbox_voices:/app/voices
+      - chatterbox_voices:/app/voices    # cloned voices persist here
+      - chatterbox_models:/app/models    # model cache
     restart: unless-stopped
     profiles: [chatterbox, all]
 

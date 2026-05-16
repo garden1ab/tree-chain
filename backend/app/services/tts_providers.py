@@ -415,7 +415,7 @@ def init_providers(api_key: str = ""):
         display_name="Chatterbox (Best Quality)",
         base_url=os.environ.get("CHATTERBOX_URL", "http://host.docker.internal:4123"),
         supports_cloning=True,
-        api_style="openai",
+        api_style="custom",
     ))
     register_provider(SidecarProvider(
         name="orpheus",
