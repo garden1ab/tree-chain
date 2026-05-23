@@ -35,12 +35,20 @@ export interface VoiceInfo {
 
 export interface CharacterConfig {
   character_name: string;
+  tts_provider: string;
   voice_id: string;
   model_id: string;
   stability: number;
   similarity_boost: number;
   style: number;
   use_speaker_boost: boolean;
+  // Chatterbox/local model sliders
+  exaggeration: number;
+  cfg_weight: number;
+  temperature: number;
+  seed: number;
+  language: string;
+  // Effects
   effects_preset: string;
   effects_config: Record<string, unknown>;
   volume_adjustment: number;

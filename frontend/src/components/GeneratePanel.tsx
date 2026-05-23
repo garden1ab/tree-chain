@@ -30,7 +30,7 @@ export default function GeneratePanel() {
   };
 
   const handleGenerate = async () => {
-    if (!currentProject || !currentScript || !apiKey) return;
+    if (!currentProject || !currentScript) return;
     setGenerating(true);
     try {
       // Save character voice configs to backend before dispatching
@@ -100,7 +100,7 @@ export default function GeneratePanel() {
         <div className="p-4 space-y-2">
           <Check ok={!!currentProject} label="Project selected" />
           <Check ok={!!currentScript} label="Script imported" />
-          <Check ok={!!apiKey} label="API key configured" />
+          <Check ok={!!apiKey} label="API key (needed for ElevenLabs only)" optional />
           <Check ok={allConfigured} label="All characters have voices assigned" />
         </div>
       </div>
@@ -146,7 +146,7 @@ export default function GeneratePanel() {
       {/* Generate button */}
       <button
         className="btn-primary w-full py-3 text-base flex items-center justify-center gap-2"
-        disabled={generating || !allConfigured || !apiKey || !currentScript}
+        disabled={generating || !allConfigured || !currentScript}
         onClick={handleGenerate}
       >
         {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
@@ -217,11 +217,11 @@ export default function GeneratePanel() {
   );
 }
 
-function Check({ ok, label }: { ok: boolean; label: string }) {
+function Check({ ok, label, optional }: { ok: boolean; label: string; optional?: boolean }) {
   return (
     <div className="flex items-center gap-2 text-sm">
-      {ok ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Clock className="w-4 h-4 text-surface-600" />}
-      <span className={ok ? 'text-surface-300' : 'text-surface-600'}>{label}</span>
+      {ok ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : optional ? <Clock className="w-4 h-4 text-surface-500" /> : <Clock className="w-4 h-4 text-surface-600" />}
+      <span className={ok ? 'text-surface-300' : optional ? 'text-surface-500' : 'text-surface-600'}>{label}</span>
     </div>
   );
 }

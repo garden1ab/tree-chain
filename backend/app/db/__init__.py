@@ -27,9 +27,23 @@ async def init_db():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     except (IntegrityError, ProgrammingError) as e:
-        # Race condition: another worker already created the enum type / tables.
-        # This is harmless — the schema is already in place.
         if "already exists" in str(e):
             pass
         else:
             raise
+
+    # Lightweight migrations: add new columns if missing
+    migrations = [
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS tts_provider VARCHAR(50) DEFAULT 'elevenlabs'",
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS exaggeration FLOAT DEFAULT 0.5",
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS cfg_weight FLOAT DEFAULT 0.5",
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS temperature FLOAT DEFAULT 0.8",
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS seed INTEGER DEFAULT 0",
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS language VARCHAR(10) DEFAULT 'en'",
+    ]
+    for sql in migrations:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(sql))
+        except Exception:
+            pass

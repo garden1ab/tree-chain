@@ -10,6 +10,7 @@ from pydub import AudioSegment
 logger = structlog.get_logger()
 
 # Predefined FFmpeg filter chains for each effect preset
+# All filters used here are part of standard ffmpeg builds (no extras)
 EFFECT_PRESETS: dict[str, str] = {
     "radio": (
         "highpass=f=300,lowpass=f=3400,"
@@ -35,16 +36,20 @@ EFFECT_PRESETS: dict[str, str] = {
         "acrusher=bits=6:mix=0.2,"
         "volume=1.1"
     ),
+    # Fixed: 'overdrive' filter doesn't exist in ffmpeg. Use distortion via gain+clipping
     "megaphone": (
-        "highpass=f=500,lowpass=f=5000,"
-        "overdrive=gain=8,"
+        "highpass=f=500,lowpass=f=4000,"
+        "volume=4.0,"                              # boost then clip
+        "alimiter=limit=0.7,"
         "acompressor=threshold=-10dB:ratio=10:attack=1:release=20,"
-        "volume=0.8"
+        "volume=0.85"
     ),
+    # Fixed: removed problematic flanger params, simpler chain
     "vhs": (
         "aecho=0.6:0.3:40:0.2,"
-        "flanger=delay=5:depth=3:speed=0.3,"
-        "lowpass=f=8000,"
+        "vibrato=f=4:d=0.3,"
+        "highpass=f=80,lowpass=f=7000,"
+        "acrusher=bits=10:mix=0.2,"
         "volume=0.85"
     ),
     "corrupted_ai": (
@@ -60,11 +65,12 @@ EFFECT_PRESETS: dict[str, str] = {
         "chorus=0.5:0.9:50:0.4:0.25:2,"
         "volume=0.7"
     ),
+    # Fixed: aphaser speed max is 2.0, not 3.0
     "glitch": (
-        "acrusher=bits=3:mix=0.6:mode=log,"
+        "acrusher=bits=4:mix=0.6,"
         "tremolo=f=15:d=0.7,"
-        "aphaser=type=t:speed=3,"
-        "volume=0.8"
+        "aphaser=type=t:speed=2:decay=0.5,"
+        "volume=0.85"
     ),
     "alien": (
         "asetrate=44100*1.3,aresample=44100,"
@@ -72,7 +78,68 @@ EFFECT_PRESETS: dict[str, str] = {
         "chorus=0.7:0.9:25:0.5:0.3:3,"
         "volume=0.85"
     ),
+    # New: whisper effect
+    "whisper": (
+        "highpass=f=200,lowpass=f=8000,"
+        "volume=0.6,"
+        "aecho=0.5:0.5:10:0.2,"
+        "volume=1.5"
+    ),
+    # New: underwater
+    "underwater": (
+        "lowpass=f=1000,"
+        "aecho=0.7:0.5:120:0.4,"
+        "chorus=0.6:0.9:30:0.4:0.3:2,"
+        "volume=0.9"
+    ),
+    # New: demonic
+    "demonic": (
+        "asetrate=44100*0.75,aresample=44100,"
+        "aecho=0.8:0.9:60:0.4,"
+        "tremolo=f=4:d=0.3,"
+        "volume=1.0"
+    ),
 }
+
+
+# Allow user-defined custom presets via JSON file
+import json as _json
+from pathlib import Path as _Path
+
+CUSTOM_PRESETS_FILE = _Path(os.environ.get("CUSTOM_EFFECTS_FILE", "/app/outputs/custom_effects.json"))
+
+
+def load_custom_presets() -> dict[str, str]:
+    """Load user-defined custom effect presets from JSON file."""
+    if CUSTOM_PRESETS_FILE.exists():
+        try:
+            return _json.loads(CUSTOM_PRESETS_FILE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def save_custom_preset(name: str, filter_chain: str) -> None:
+    """Save a user-defined custom effect preset."""
+    CUSTOM_PRESETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    presets = load_custom_presets()
+    presets[name] = filter_chain
+    CUSTOM_PRESETS_FILE.write_text(_json.dumps(presets, indent=2))
+
+
+def delete_custom_preset(name: str) -> bool:
+    """Remove a user-defined preset. Returns True if it existed."""
+    presets = load_custom_presets()
+    if name in presets:
+        del presets[name]
+        CUSTOM_PRESETS_FILE.write_text(_json.dumps(presets, indent=2))
+        return True
+    return False
+
+
+def get_all_presets() -> dict[str, str]:
+    """Merge built-in and user custom presets (custom overrides built-in)."""
+    return {**EFFECT_PRESETS, **load_custom_presets()}
 
 
 async def apply_effects(
@@ -101,9 +168,10 @@ async def apply_effects(
 
     filters = []
 
-    # Base preset
-    if preset in EFFECT_PRESETS:
-        base_filter = EFFECT_PRESETS[preset]
+    # Base preset (merged: built-in + user custom)
+    all_presets = get_all_presets()
+    if preset in all_presets:
+        base_filter = all_presets[preset]
         # Apply wet/dry mix if specified
         if custom_config and "wet_dry_mix" in custom_config:
             mix = custom_config["wet_dry_mix"]

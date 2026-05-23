@@ -21,8 +21,7 @@ router = APIRouter(tags=["generation"])
 async def start_generation(req: GenerationRequest, db: AsyncSession = Depends(get_db)):
     """Start a dialogue generation job."""
     api_key = await _get_api_key(db)
-    if not api_key:
-        raise HTTPException(400, "No ElevenLabs API key configured. Add one in Settings.")
+    # API key is only needed for ElevenLabs — local providers don't require one
 
     # Create job record
     job = GenerationJob(
