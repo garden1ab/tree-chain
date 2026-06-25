@@ -139,6 +139,9 @@ async def load_project_file(file: UploadFile = File(...), db: AsyncSession = Dep
                 raw_text=line_data.get("raw_text", line_data["text"]),
                 directives=line_data.get("directives", []),
                 pause_after_ms=line_data.get("pause_after_ms", 0),
+                start_time_ms=line_data.get("start_time_ms"),
+                volume_adjust_db=line_data.get("volume_adjust_db", 0.0),
+                effect_override=line_data.get("effect_override", ""),
             ))
 
     # Import configs

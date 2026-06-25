@@ -208,3 +208,28 @@ class TestTimelineConcat:
         dur = get_audio_duration_ms(out)
         # Last clip starts at 10s, lasts 1s -> ~11s total
         assert 10900 <= dur <= 11100, dur
+
+
+class TestVoiceColumns:
+    def test_elevenlabs_and_chatterbox_columns(self):
+        csv = ("Character,Dialogue,ElevenLabs,Chatterbox\n"
+               "Mary,Hello,21m00Tcm4TlvDq8ikWAM,my_clone\n"
+               "John,Hi there,AZnzlk1XvdvUeBnXmlld,")
+        lines = parse_csv(csv)
+        assert lines[0].elevenlabs_voice == "21m00Tcm4TlvDq8ikWAM"
+        assert lines[0].chatterbox_voice == "my_clone"
+        assert lines[1].elevenlabs_voice == "AZnzlk1XvdvUeBnXmlld"
+        assert lines[1].chatterbox_voice == ""
+
+    def test_voice_columns_optional(self):
+        csv = "Character,Dialogue\nMary,Hello"
+        lines = parse_csv(csv)
+        assert lines[0].elevenlabs_voice == ""
+        assert lines[0].chatterbox_voice == ""
+
+    def test_voice_column_aliases(self):
+        csv = ("Character,Dialogue,eleven,cb_voice\n"
+               "A,Hi,voice123,clone1")
+        lines = parse_csv(csv)
+        assert lines[0].elevenlabs_voice == "voice123"
+        assert lines[0].chatterbox_voice == "clone1"

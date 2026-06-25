@@ -1,13 +1,13 @@
-Character,Dialogue,Start,Volume,Effect
-Commander,"All units move in. We have a narrow window.",0:00,0,radio
-Pilot,"Bandits at twelve o'clock! Engaging evasive maneuvers.",0:04,0,helmet
-Operator,"Radar contact confirmed. Three bogeys inbound.",0:08,-2,radio
-Commander,"Hold formation. Wait for my signal.",0:12,0,radio
-Pilot,"Copy that, Commander. Holding steady.",0:15,0,helmet
-Operator,"Signal interference detected. Switching to backup frequency.",0:19,-3,glitch
-Commander,"All units, go loud! Weapons free!",0:24,2,radio
-Pilot,"Fox two! Fox two! Missile away!",0:28,3,helmet
-Operator,"Direct hit confirmed. Target is down.",0:33,0,radio
-Commander,"Good work. All units rally at checkpoint Bravo.",0:37,0,radio
-Pilot,"Acknowledged. Heading to Bravo. Fuel is getting low.",0:42,0,helmet
-Operator,"Command, this is Overwatch. Mission success.",0:48,0,megaphone
+Character,Dialogue,Start,Volume,Effect,ElevenLabs,Chatterbox
+Commander,"All units move in. We have a narrow window.",0:00,0,radio,21m00Tcm4TlvDq8ikWAM,default
+Pilot,"Bandits at twelve o'clock! Engaging evasive maneuvers.",0:04,0,helmet,AZnzlk1XvdvUeBnXmlld,default
+Operator,"Radar contact confirmed. Three bogeys inbound.",0:08,-2,radio,EXAVITQu4vr4xnSDxMaL,default
+Commander,"Hold formation. Wait for my signal.",0:12,0,radio,21m00Tcm4TlvDq8ikWAM,default
+Pilot,"Copy that, Commander. Holding steady.",0:15,0,helmet,AZnzlk1XvdvUeBnXmlld,default
+Operator,"Signal interference detected. Switching to backup frequency.",0:19,-3,glitch,EXAVITQu4vr4xnSDxMaL,default
+Commander,"All units, go loud! Weapons free!",0:24,2,radio,21m00Tcm4TlvDq8ikWAM,default
+Pilot,"Fox two! Fox two! Missile away!",0:28,3,helmet,AZnzlk1XvdvUeBnXmlld,default
+Operator,"Direct hit confirmed. Target is down.",0:33,0,radio,EXAVITQu4vr4xnSDxMaL,default
+Commander,"Good work. All units rally at checkpoint Bravo.",0:37,0,radio,21m00Tcm4TlvDq8ikWAM,default
+Pilot,"Acknowledged. Heading to Bravo. Fuel is getting low.",0:42,0,helmet,AZnzlk1XvdvUeBnXmlld,default
+Operator,"Command, this is Overwatch. Mission success.",0:48,0,megaphone,EXAVITQu4vr4xnSDxMaL,default

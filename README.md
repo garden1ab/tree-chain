@@ -107,16 +107,20 @@ Sample scripts in `samples/` (CSV, TXT, JSON).
 **CSV** — required columns `Character` and `Dialogue`, plus optional columns (any order, case-insensitive):
 
 ```csv
-Character,Dialogue,Start,Pause,Volume,Effect
-Commander,"All units move in.",0:00,,0,radio
-Pilot,"Bandits at twelve o'clock!",0:04,,2,helmet
-Operator,"Target is down.",0:08,1.5,-2,
+Character,Dialogue,Start,Pause,Volume,Effect,ElevenLabs,Chatterbox
+Commander,"All units move in.",0:00,,0,radio,21m00Tcm4TlvDq8ikWAM,
+Pilot,"Bandits at twelve o'clock!",0:04,,2,helmet,,my_pilot_clone
+Operator,"Target is down.",0:08,1.5,-2,,EXAVITQu4vr4xnSDxMaL,
 ```
 
 - **Start** — absolute placement on the combined timeline in `M:SS` format (e.g. `0:00`, `1:23`, `0:02.5`). When any line has a Start time, the combined export places clips at those exact times instead of back-to-back, leaving silence in the gaps. Lines without a Start time fall back to sequential placement.
 - **Pause** — seconds of silence after the line (e.g. `1.5` or `0:02`).
 - **Volume** — per-line volume adjustment in dB (e.g. `-3`, `2.5`). Added on top of the character's volume setting.
 - **Effect** — per-line effect preset override (e.g. `radio`, `glitch`). Overrides the character's default effect for that line.
+- **ElevenLabs** — the ElevenLabs voice_id to assign to this character. On upload, the character is auto-configured to use ElevenLabs with this voice.
+- **Chatterbox** — the Chatterbox voice name (a cloned voice from the library, or `default`) to assign to this character. Used if no ElevenLabs voice is given.
+
+Voice columns auto-populate the Character Voices tab on upload — no manual assignment needed. You can also click **Auto: ElevenLabs** or **Auto: Chatterbox** on that tab to round-robin assign voices to every character at once.
 
 **TXT** — `Character: Dialogue`, with an optional leading timecode:
 ```

@@ -18,6 +18,8 @@ class ParsedLine:
     start_time_ms: int | None = None  # absolute placement on combined timeline (None = auto/sequential)
     volume_adjust_db: float = 0.0     # per-line volume tweak in dB
     effect_override: str = ""         # per-line effect preset override (blank = use character default)
+    elevenlabs_voice: str = ""        # ElevenLabs voice_id for this character (column hint)
+    chatterbox_voice: str = ""        # Chatterbox voice name for this character (column hint)
 
 
 def parse_timecode(value: str) -> int | None:
@@ -96,6 +98,8 @@ START_COLS = {"start", "start_time", "starttime", "time", "timecode", "cue", "ti
 PAUSE_COLS = {"pause", "pause_after", "delay", "gap"}
 VOLUME_COLS = {"volume", "vol", "gain", "volume_db"}
 EFFECT_COLS = {"effect", "effects", "preset", "fx"}
+ELEVENLABS_COLS = {"elevenlabs", "elevenlabs_voice", "eleven_labs", "el_voice", "elvoice", "eleven"}
+CHATTERBOX_COLS = {"chatterbox", "chatterbox_voice", "cb_voice", "cbvoice"}
 
 
 def parse_csv(content: str) -> list[ParsedLine]:
@@ -116,7 +120,8 @@ def parse_csv(content: str) -> list[ParsedLine]:
     has_header = any(h in CHARACTER_COLS for h in header_lower)
 
     col = {"character": 0, "dialogue": 1, "start": None,
-           "pause": None, "volume": None, "effect": None}
+           "pause": None, "volume": None, "effect": None,
+           "elevenlabs": None, "chatterbox": None}
 
     if has_header:
         for idx, h in enumerate(header_lower):
@@ -132,6 +137,10 @@ def parse_csv(content: str) -> list[ParsedLine]:
                 col["volume"] = idx
             elif h in EFFECT_COLS:
                 col["effect"] = idx
+            elif h in ELEVENLABS_COLS:
+                col["elevenlabs"] = idx
+            elif h in CHATTERBOX_COLS:
+                col["chatterbox"] = idx
         data_rows = rows[1:]
     else:
         if len(header) >= 3:
@@ -174,6 +183,8 @@ def parse_csv(content: str) -> list[ParsedLine]:
                 pass
 
         effect = get(row, "effect") if col["effect"] is not None else ""
+        el_voice = get(row, "elevenlabs") if col["elevenlabs"] is not None else ""
+        cb_voice = get(row, "chatterbox") if col["chatterbox"] is not None else ""
 
         lines.append(ParsedLine(
             line_number=n,
@@ -185,6 +196,8 @@ def parse_csv(content: str) -> list[ParsedLine]:
             start_time_ms=start_ms,
             volume_adjust_db=vol_db,
             effect_override=effect,
+            elevenlabs_voice=el_voice,
+            chatterbox_voice=cb_voice,
         ))
 
     return lines

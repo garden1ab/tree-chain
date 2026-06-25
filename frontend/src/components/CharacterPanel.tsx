@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Volume2, Save, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw, Volume2, Save, ChevronDown, ChevronRight, Wand2 } from 'lucide-react';
 import { useStore } from '../store';
 import { fetchVoices, syncVoices, listProviders, getProviderVoices } from '../api';
 import type { TTSProviderInfo, ProviderVoice } from '../api';
@@ -49,21 +49,86 @@ export default function CharacterPanel() {
     if (apiKey && voices.length === 0) handleSync();
   }, [apiKey]);
 
+  // Auto-assign voices to every character, round-robin from the chosen provider
+  const [autoFilling, setAutoFilling] = useState(false);
+  const autoPopulate = async (provider: 'elevenlabs' | 'chatterbox') => {
+    setAutoFilling(true);
+    try {
+      let available: { voice_id: string; name: string }[] = [];
+      if (provider === 'elevenlabs') {
+        if (voices.length === 0) {
+          await handleSync();
+        }
+        available = (useStore.getState().voices || []).map((v: any) => ({
+          voice_id: v.voice_id, name: v.name,
+        }));
+      } else {
+        const pv = await getProviderVoices('chatterbox');
+        setProviderVoices((prev) => ({ ...prev, chatterbox: pv }));
+        available = pv.map((v) => ({ voice_id: v.voice_id, name: v.name }));
+      }
+
+      if (available.length === 0) {
+        addLog({ level: 'warning', message: `No ${provider} voices available to assign. ${provider === 'elevenlabs' ? 'Check your API key.' : 'Is the Chatterbox engine running?'}` });
+        setAutoFilling(false);
+        return;
+      }
+
+      const configs = useStore.getState().characterConfigs;
+      configs.forEach((cfg, i) => {
+        const chosen = available[i % available.length];
+        updateCharacterConfig(cfg.character_name, {
+          tts_provider: provider,
+          voice_id: chosen.voice_id,
+          model_id: provider === 'elevenlabs' ? 'eleven_multilingual_v2' : '',
+        });
+      });
+      addLog({ level: 'success', message: `Assigned ${provider} voices to ${configs.length} characters` });
+    } catch (e: any) {
+      addLog({ level: 'error', message: `Auto-populate failed: ${e.message}` });
+    }
+    setAutoFilling(false);
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-display font-bold tracking-wide">Character Voices</h2>
-          <p className="text-xs text-surface-500 mt-0.5">Assign ElevenLabs voices and configure each character</p>
+          <p className="text-xs text-surface-500 mt-0.5">Assign voices and configure each character</p>
         </div>
-        <button
-          className="btn-secondary flex items-center gap-2"
-          onClick={handleSync}
-          disabled={syncing}
-        >
-          <RefreshCw className={clsx('w-3.5 h-3.5', syncing && 'animate-spin')} />
-          {syncing ? 'Syncing...' : 'Sync Voices'}
-        </button>
+        <div className="flex items-center gap-2">
+          {characterConfigs.length > 0 && (
+            <>
+              <button
+                className="btn-secondary flex items-center gap-2"
+                onClick={() => autoPopulate('elevenlabs')}
+                disabled={autoFilling}
+                title="Assign ElevenLabs voices to all characters (round-robin)"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                Auto: ElevenLabs
+              </button>
+              <button
+                className="btn-secondary flex items-center gap-2"
+                onClick={() => autoPopulate('chatterbox')}
+                disabled={autoFilling}
+                title="Assign Chatterbox voices to all characters (round-robin)"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                Auto: Chatterbox
+              </button>
+            </>
+          )}
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={handleSync}
+            disabled={syncing}
+          >
+            <RefreshCw className={clsx('w-3.5 h-3.5', syncing && 'animate-spin')} />
+            {syncing ? 'Syncing...' : 'Sync Voices'}
+          </button>
+        </div>
       </div>
 
       {characterConfigs.length === 0 ? (

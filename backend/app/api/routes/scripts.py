@@ -71,6 +71,64 @@ async def upload_script(
 
     characters = sorted(set(pl.character_name for pl in parsed_lines))
 
+    # Auto-populate character voice configs from CSV voice columns.
+    # Build a per-character map of any voice hints found in the script.
+    from app.models.database import CharacterVoiceConfig
+    voice_hints: dict[str, dict] = {}
+    for pl in parsed_lines:
+        name = pl.character_name
+        if name not in voice_hints:
+            voice_hints[name] = {"elevenlabs": "", "chatterbox": "", "effect": ""}
+        if pl.elevenlabs_voice and not voice_hints[name]["elevenlabs"]:
+            voice_hints[name]["elevenlabs"] = pl.elevenlabs_voice
+        if pl.chatterbox_voice and not voice_hints[name]["chatterbox"]:
+            voice_hints[name]["chatterbox"] = pl.chatterbox_voice
+        if pl.effect_override and not voice_hints[name]["effect"]:
+            voice_hints[name]["effect"] = pl.effect_override
+
+    for name, hints in voice_hints.items():
+        has_el = bool(hints["elevenlabs"])
+        has_cb = bool(hints["chatterbox"])
+        has_fx = bool(hints["effect"])
+        if not (has_el or has_cb or has_fx):
+            continue
+        # Does a config already exist for this character in this project?
+        existing = (await db.execute(
+            select(CharacterVoiceConfig).where(
+                CharacterVoiceConfig.project_id == pid,
+                CharacterVoiceConfig.character_name == name,
+            )
+        )).scalar_one_or_none()
+
+        # Prefer ElevenLabs if a voice_id is given, else Chatterbox
+        provider = voice_id = model_id = None
+        if has_el:
+            provider, voice_id = "elevenlabs", hints["elevenlabs"]
+            model_id = "eleven_multilingual_v2"
+        elif has_cb:
+            provider, voice_id = "chatterbox", hints["chatterbox"]
+            model_id = ""
+
+        if existing:
+            if provider:
+                existing.tts_provider = provider
+                existing.voice_id = voice_id
+                if model_id:
+                    existing.model_id = model_id
+            if has_fx:
+                existing.effects_preset = hints["effect"]
+        else:
+            db.add(CharacterVoiceConfig(
+                project_id=pid,
+                character_name=name,
+                tts_provider=provider or "elevenlabs",
+                voice_id=voice_id or "",
+                model_id=model_id or "eleven_multilingual_v2",
+                effects_preset=hints["effect"] if has_fx else "none",
+            ))
+
+    await db.flush()
+
     return ScriptUploadResponse(
         script_id=script.id,
         filename=file.filename,
