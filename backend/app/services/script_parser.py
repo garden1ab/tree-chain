@@ -179,6 +179,8 @@ def parse_csv(content: str) -> list[ParsedLine]:
         if vol_val:
             try:
                 vol_db = float(vol_val)
+                # Clamp to a sane range to avoid silence/distortion
+                vol_db = max(-40.0, min(20.0, vol_db))
             except ValueError:
                 pass
 

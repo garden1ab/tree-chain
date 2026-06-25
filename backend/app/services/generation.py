@@ -116,6 +116,14 @@ class GenerationService:
         job = (await self.db.execute(
             select(GenerationJob).where(GenerationJob.id == job_id)
         )).scalar_one()
+
+        # Idempotency guard: if this job was already completed or is already
+        # running (e.g. a duplicate/redelivered task), do not start over.
+        if job.status in (JobStatus.COMPLETED, JobStatus.RUNNING):
+            self._log("info", f"Job {job_id} already {job.status.value}, skipping duplicate run",
+                      job_id=str(job_id))
+            return
+
         job.status = JobStatus.RUNNING
         await self.db.commit()
 

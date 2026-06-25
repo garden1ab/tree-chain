@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, Volume2, Save, ChevronDown, ChevronRight, Wand2 } from 'lucide-react';
 import { useStore } from '../store';
-import { fetchVoices, syncVoices, listProviders, getProviderVoices } from '../api';
+import { fetchVoices, syncVoices, listProviders, getProviderVoices, getEffectPresets } from '../api';
 import type { TTSProviderInfo, ProviderVoice } from '../api';
 import type { CharacterConfig } from '../types';
 import clsx from 'clsx';
@@ -184,8 +184,7 @@ function CharacterRow({ config, voices, providers, providerVoices, onLoadProvide
 
   // Load available effect presets (built-in + custom) once
   useEffect(() => {
-    fetch('/api/effects/presets')
-      .then((r) => r.json())
+    getEffectPresets()
       .then((d) => setEffectPresets(d.presets || []))
       .catch(() => {});
   }, []);
@@ -350,7 +349,7 @@ function CharacterRow({ config, voices, providers, providerVoices, onLoadProvide
             </>
           )}
 
-          <SliderControl label="Volume Adjustment" value={config.volume_adjustment} min={-10} max={10} step={0.5} onChange={(v) => onUpdate({ volume_adjustment: v })} />
+          <SliderControl label="Volume Adjustment (dB)" value={config.volume_adjustment} min={-20} max={20} step={0.5} onChange={(v) => onUpdate({ volume_adjustment: v })} />
 
           {config.tts_provider === 'elevenlabs' && (
             <div className="flex items-center gap-3">

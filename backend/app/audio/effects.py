@@ -302,45 +302,66 @@ async def concatenate_audio_timeline(
     - Clips with an explicit start_ms are positioned at that absolute time.
     - Clips without start_ms play sequentially after the previous clip ends,
       plus the global silence gap (and any per-line pause_after_ms).
-    - If an explicit start_ms is earlier than the current playhead, the clip
-      is overlaid (mixed) at that position so nothing is lost.
+    - Overlapping clips are mixed together.
+
+    Implementation note: builds the mix in a single numpy float buffer and adds
+    each clip at its sample offset. This is far more memory-efficient than
+    repeatedly calling AudioSegment.overlay() (which copies the whole canvas on
+    every call) and avoids OOM-killing the worker on long timelines.
     """
+    import numpy as np
+
     if not clips:
         AudioSegment.silent(duration=10, frame_rate=sample_rate).export(
             output_path, format="wav", parameters=["-ar", str(sample_rate)]
         )
         return output_path
 
-    segments = []  # (position_ms, AudioSegment)
-    playhead = 0   # ms — where the next sequential clip starts
+    # First pass: load each clip's samples (mono, target sample rate) and
+    # compute its position, without keeping AudioSegments around.
+    placed = []  # (start_sample, np.ndarray float32)
+    playhead_ms = 0
+    max_end_sample = 0
 
     for clip in clips:
-        seg = AudioSegment.from_file(clip["path"]).set_frame_rate(sample_rate)
+        seg = AudioSegment.from_file(clip["path"])
+        seg = seg.set_frame_rate(sample_rate).set_channels(1)
+        samples = np.array(seg.get_array_of_samples(), dtype=np.float32)
+
         start_ms = clip.get("start_ms")
         pause_after = clip.get("pause_after_ms", 0) or 0
+        position_ms = start_ms if start_ms is not None else playhead_ms
 
-        if start_ms is not None:
-            position = start_ms
-        else:
-            position = playhead
+        start_sample = int(position_ms * sample_rate / 1000)
+        placed.append((start_sample, samples))
 
-        segments.append((position, seg))
+        end_sample = start_sample + len(samples)
+        max_end_sample = max(max_end_sample, end_sample)
 
-        # Advance playhead to the end of this clip (+ gaps) for subsequent
-        # auto-positioned clips. Explicit-start clips still move the playhead
-        # so following sequential lines continue after them.
-        end_of_clip = position + len(seg)
-        playhead = end_of_clip + pause_after + silence_ms
+        # Advance playhead for subsequent auto-positioned clips
+        playhead_ms = (position_ms + len(seg)) + pause_after + silence_ms
 
-    # Determine total timeline length
-    total_ms = max(pos + len(seg) for pos, seg in segments)
+    # Allocate the mix buffer once and add each clip in place
+    mix = np.zeros(max_end_sample, dtype=np.float32)
+    for start_sample, samples in placed:
+        end = start_sample + len(samples)
+        mix[start_sample:end] += samples
 
-    # Build a silent canvas and overlay each clip at its position
-    canvas = AudioSegment.silent(duration=total_ms, frame_rate=sample_rate)
-    for position, seg in segments:
-        canvas = canvas.overlay(seg, position=position)
+    # Prevent clipping: scale down if the summed peak exceeds int16 range
+    peak = np.max(np.abs(mix)) if max_end_sample > 0 else 0
+    limit = 32767.0
+    if peak > limit:
+        mix *= (limit / peak)
 
-    canvas.export(output_path, format="wav", parameters=["-ar", str(sample_rate)])
+    mix_int16 = mix.astype(np.int16)
+
+    out = AudioSegment(
+        mix_int16.tobytes(),
+        frame_rate=sample_rate,
+        sample_width=2,
+        channels=1,
+    )
+    out.export(output_path, format="wav", parameters=["-ar", str(sample_rate)])
     return output_path
 
 

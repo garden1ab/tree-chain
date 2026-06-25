@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Check, AlertCircle, FolderOpen, Plus } from 'lucide-react';
 import { useStore } from '../store';
-import { uploadScript, createProject, listProjects, loadProjectFile } from '../api';
+import { uploadScript, createProject, listProjects, loadProjectFile, getCharacterConfigs } from '../api';
 import type { Project } from '../types';
 import clsx from 'clsx';
 
@@ -49,25 +49,60 @@ export default function ImportPanel() {
     try {
       const result = await uploadScript(file, currentProject.id);
       setCurrentScript(result);
-      // Build default configs for discovered characters
-      const configs = result.characters.map((name) => ({
-        character_name: name,
-        tts_provider: 'elevenlabs',
-        voice_id: '',
-        model_id: 'eleven_multilingual_v2',
-        stability: 0.5,
-        similarity_boost: 0.75,
-        style: 0.0,
-        use_speaker_boost: true,
-        exaggeration: 0.5,
-        cfg_weight: 0.5,
-        temperature: 0.8,
-        seed: 0,
-        language: 'en',
-        effects_preset: 'none',
-        effects_config: {},
-        volume_adjustment: 0.0,
-      }));
+
+      // The backend auto-creates character configs from CSV voice/effect columns.
+      // Fetch those first so CSV hints (effect, voice, provider) are preserved.
+      let backendConfigs: any[] = [];
+      try {
+        backendConfigs = await getCharacterConfigs(currentProject.id);
+      } catch {
+        backendConfigs = [];
+      }
+      const byName: Record<string, any> = {};
+      backendConfigs.forEach((c) => { byName[c.character_name] = c; });
+
+      // For any character without a backend config, fall back to defaults.
+      const configs = result.characters.map((name) => {
+        if (byName[name]) {
+          // Ensure all fields exist (older backends may omit some)
+          return {
+            character_name: name,
+            tts_provider: byName[name].tts_provider ?? 'elevenlabs',
+            voice_id: byName[name].voice_id ?? '',
+            model_id: byName[name].model_id ?? 'eleven_multilingual_v2',
+            stability: byName[name].stability ?? 0.5,
+            similarity_boost: byName[name].similarity_boost ?? 0.75,
+            style: byName[name].style ?? 0.0,
+            use_speaker_boost: byName[name].use_speaker_boost ?? true,
+            exaggeration: byName[name].exaggeration ?? 0.5,
+            cfg_weight: byName[name].cfg_weight ?? 0.5,
+            temperature: byName[name].temperature ?? 0.8,
+            seed: byName[name].seed ?? 0,
+            language: byName[name].language ?? 'en',
+            effects_preset: byName[name].effects_preset ?? 'none',
+            effects_config: byName[name].effects_config ?? {},
+            volume_adjustment: byName[name].volume_adjustment ?? 0.0,
+          };
+        }
+        return {
+          character_name: name,
+          tts_provider: 'elevenlabs',
+          voice_id: '',
+          model_id: 'eleven_multilingual_v2',
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true,
+          exaggeration: 0.5,
+          cfg_weight: 0.5,
+          temperature: 0.8,
+          seed: 0,
+          language: 'en',
+          effects_preset: 'none',
+          effects_config: {},
+          volume_adjustment: 0.0,
+        };
+      });
       setCharacterConfigs(configs);
       addLog({
         level: 'success',

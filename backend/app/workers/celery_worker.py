@@ -20,8 +20,21 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     worker_concurrency=2,
-    task_acks_late=True,
-    task_reject_on_worker_lost=True,
+    # Ack the task as soon as it's picked up. With acks_late=True a long task
+    # (or one that outlives the Redis visibility timeout) gets redelivered and
+    # restarts from scratch — which looks like the progress "resetting" and
+    # running forever. Acking early means a job runs at most once.
+    task_acks_late=False,
+    task_reject_on_worker_lost=False,
+    # Don't let a task be retried automatically on failure.
+    task_default_retry_delay=0,
+    # Hard ceiling so a stuck job is killed instead of running indefinitely.
+    task_time_limit=3600,          # 60 min hard kill
+    task_soft_time_limit=3300,     # 55 min soft (raises SoftTimeLimitExceeded)
+    # Raise the Redis visibility timeout well above the hard time limit so the
+    # broker never redelivers a still-running task.
+    broker_transport_options={"visibility_timeout": 7200},
+    result_backend_transport_options={"visibility_timeout": 7200},
 )
 
 
