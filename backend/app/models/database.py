@@ -89,6 +89,10 @@ class CharacterVoiceConfig(Base):
     temperature = Column(Float, default=0.8)
     seed = Column(Integer, default=0)
     language = Column(String(10), default="en")
+    # Remembered per-provider voices (from CSV columns) so switching the
+    # provider in the UI keeps the right voice for each character.
+    el_voice_id = Column(String(255), default="")
+    cb_voice_id = Column(String(255), default="")
     # Effects
     effects_preset = Column(String(100), default="none")
     effects_config = Column(JSON, default=dict)

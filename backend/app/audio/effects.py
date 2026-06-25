@@ -168,10 +168,15 @@ async def apply_effects(
 
     filters = []
 
-    # Base preset (merged: built-in + user custom)
+    # Base preset (merged: built-in + user custom). Case-insensitive lookup so
+    # "Telephone", "TELEPHONE", and "telephone" all resolve to the same preset.
     all_presets = get_all_presets()
-    if preset in all_presets:
-        base_filter = all_presets[preset]
+    preset_key = preset
+    if preset not in all_presets:
+        lower_map = {k.lower(): k for k in all_presets}
+        preset_key = lower_map.get(preset.lower(), preset)
+    if preset_key in all_presets:
+        base_filter = all_presets[preset_key]
         # Apply wet/dry mix if specified
         if custom_config and "wet_dry_mix" in custom_config:
             mix = custom_config["wet_dry_mix"]
@@ -288,6 +293,43 @@ async def concatenate_audio(
     return output_path
 
 
+async def _concatenate_timeline_pydub(
+    clips: list[dict],
+    output_path: str,
+    silence_ms: int = 500,
+    sample_rate: int = 44100,
+) -> str:
+    """Fallback timeline mixer using only pydub (no numpy).
+
+    Heavier on memory than the numpy path, but used only if numpy is missing.
+    """
+    if not clips:
+        AudioSegment.silent(duration=10, frame_rate=sample_rate).export(
+            output_path, format="wav", parameters=["-ar", str(sample_rate)]
+        )
+        return output_path
+
+    MAX_TIMELINE_MS = 3 * 60 * 60 * 1000
+    positioned = []
+    playhead_ms = 0
+    total_ms = 0
+    for clip in clips:
+        seg = AudioSegment.from_file(clip["path"]).set_frame_rate(sample_rate).set_channels(1)
+        start_ms = clip.get("start_ms")
+        pause_after = clip.get("pause_after_ms", 0) or 0
+        position_ms = start_ms if start_ms is not None else playhead_ms
+        position_ms = min(position_ms, MAX_TIMELINE_MS)
+        positioned.append((position_ms, seg))
+        total_ms = max(total_ms, position_ms + len(seg))
+        playhead_ms = position_ms + len(seg) + pause_after + silence_ms
+
+    canvas = AudioSegment.silent(duration=total_ms, frame_rate=sample_rate)
+    for position_ms, seg in positioned:
+        canvas = canvas.overlay(seg, position=position_ms)
+    canvas.export(output_path, format="wav", parameters=["-ar", str(sample_rate)])
+    return output_path
+
+
 async def concatenate_audio_timeline(
     clips: list[dict],
     output_path: str,
@@ -309,13 +351,27 @@ async def concatenate_audio_timeline(
     repeatedly calling AudioSegment.overlay() (which copies the whole canvas on
     every call) and avoids OOM-killing the worker on long timelines.
     """
-    import numpy as np
+    try:
+        import numpy as np
+    except ImportError:
+        # numpy should be installed, but if it's ever missing don't kill the
+        # job at the combining phase — fall back to a pydub overlay (heavier on
+        # memory but correct) so the timeline still gets built.
+        logger.warning("numpy_unavailable_using_pydub_fallback")
+        return await _concatenate_timeline_pydub(clips, output_path, silence_ms, sample_rate)
 
     if not clips:
         AudioSegment.silent(duration=10, frame_rate=sample_rate).export(
             output_path, format="wav", parameters=["-ar", str(sample_rate)]
         )
         return output_path
+
+    # Safety cap: never place a clip beyond this point on the timeline. Protects
+    # the worker from a pathological start time (e.g. a mis-parsed 24:00:00)
+    # allocating a multi-gigabyte mix buffer. 3 hours is far beyond any real
+    # dialogue timeline.
+    MAX_TIMELINE_MS = 3 * 60 * 60 * 1000  # 3 hours
+    max_start_sample = int(MAX_TIMELINE_MS * sample_rate / 1000)
 
     # First pass: load each clip's samples (mono, target sample rate) and
     # compute its position, without keeping AudioSegments around.
@@ -333,6 +389,8 @@ async def concatenate_audio_timeline(
         position_ms = start_ms if start_ms is not None else playhead_ms
 
         start_sample = int(position_ms * sample_rate / 1000)
+        if start_sample > max_start_sample:
+            start_sample = max_start_sample  # clamp out-of-range placement
         placed.append((start_sample, samples))
 
         end_sample = start_sample + len(samples)

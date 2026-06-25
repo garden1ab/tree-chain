@@ -51,6 +51,8 @@ export interface CharacterConfig {
   temperature: number;
   seed: number;
   language: string;
+  el_voice_id?: string;
+  cb_voice_id?: string;
   // Effects
   effects_preset: string;
   effects_config: Record<string, unknown>;

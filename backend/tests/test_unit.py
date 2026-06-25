@@ -233,3 +233,24 @@ class TestVoiceColumns:
         lines = parse_csv(csv)
         assert lines[0].elevenlabs_voice == "voice123"
         assert lines[0].chatterbox_voice == "clone1"
+
+
+class TestSpreadsheetTimecodeArtifact:
+    def test_mmss_with_spurious_zero_seconds(self):
+        # Google Sheets exports "24:08" (MM:SS) as "24:08:00" (HH:MM:SS)
+        assert parse_timecode("24:08:00") == 1448000   # 24m08s
+        assert parse_timecode("33:36:00") == 2016000   # 33m36s
+
+    def test_genuine_hms_preserved(self):
+        # Real H:MM:SS under 2 hours stays as-is
+        assert parse_timecode("1:02:03") == 3723000
+        assert parse_timecode("0:02:00") == 120000     # 2 minutes
+
+    def test_two_part_unaffected(self):
+        assert parse_timecode("23:59") == 1439000
+
+    def test_effect_lowercased(self):
+        csv = "Character,Dialogue,Effect\nA,Hi,Telephone\nB,Yo,RADIO"
+        lines = parse_csv(csv)
+        assert lines[0].effect_override == "telephone"
+        assert lines[1].effect_override == "radio"

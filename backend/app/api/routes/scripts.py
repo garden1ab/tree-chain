@@ -100,14 +100,14 @@ async def upload_script(
             )
         )).scalar_one_or_none()
 
-        # Prefer ElevenLabs if a voice_id is given, else Chatterbox
-        provider = voice_id = model_id = None
+        # Default active provider: ElevenLabs if it has a voice, else Chatterbox.
+        # Both voices are remembered so the user can switch provider freely.
         if has_el:
-            provider, voice_id = "elevenlabs", hints["elevenlabs"]
-            model_id = "eleven_multilingual_v2"
+            provider, voice_id, model_id = "elevenlabs", hints["elevenlabs"], "eleven_multilingual_v2"
         elif has_cb:
-            provider, voice_id = "chatterbox", hints["chatterbox"]
-            model_id = ""
+            provider, voice_id, model_id = "chatterbox", hints["chatterbox"], ""
+        else:
+            provider = voice_id = model_id = None
 
         if existing:
             if provider:
@@ -115,6 +115,10 @@ async def upload_script(
                 existing.voice_id = voice_id
                 if model_id:
                     existing.model_id = model_id
+            if has_el:
+                existing.el_voice_id = hints["elevenlabs"]
+            if has_cb:
+                existing.cb_voice_id = hints["chatterbox"]
             if has_fx:
                 existing.effects_preset = hints["effect"]
         else:
@@ -124,6 +128,8 @@ async def upload_script(
                 tts_provider=provider or "elevenlabs",
                 voice_id=voice_id or "",
                 model_id=model_id or "eleven_multilingual_v2",
+                el_voice_id=hints["elevenlabs"],
+                cb_voice_id=hints["chatterbox"],
                 effects_preset=hints["effect"] if has_fx else "none",
             ))
 

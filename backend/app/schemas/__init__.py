@@ -47,6 +47,8 @@ class CharacterVoiceConfigSchema(BaseModel):
     temperature: float = Field(0.8, ge=0.05, le=5.0)
     seed: int = 0
     language: str = "en"
+    el_voice_id: str = ""
+    cb_voice_id: str = ""
     # Effects
     effects_preset: str = "none"
     effects_config: dict = {}

@@ -40,6 +40,8 @@ async def init_db():
         "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS temperature FLOAT DEFAULT 0.8",
         "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS seed INTEGER DEFAULT 0",
         "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS language VARCHAR(10) DEFAULT 'en'",
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS el_voice_id VARCHAR(255) DEFAULT ''",
+        "ALTER TABLE character_voice_configs ADD COLUMN IF NOT EXISTS cb_voice_id VARCHAR(255) DEFAULT ''",
         "ALTER TABLE dialogue_lines ADD COLUMN IF NOT EXISTS start_time_ms INTEGER",
         "ALTER TABLE dialogue_lines ADD COLUMN IF NOT EXISTS volume_adjust_db FLOAT DEFAULT 0.0",
         "ALTER TABLE dialogue_lines ADD COLUMN IF NOT EXISTS effect_override VARCHAR(100) DEFAULT ''",

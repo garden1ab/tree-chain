@@ -31,6 +31,13 @@ def parse_timecode(value: str) -> int | None:
       M:SS.mmm    -> with fractional secs  (e.g. 0:02.5 -> 2500)
       H:MM:SS     -> hours:minutes:seconds (e.g. 1:02:03)
       SS          -> plain seconds         (e.g. 12 -> 12000)
+
+    Spreadsheet-artifact handling: Google Sheets (and Excel) silently reformat
+    MM:SS values into HH:MM:SS once the minutes reach 24:00 (e.g. a cell typed
+    as "24:08" is exported as "24:08:00"). For an audio dialogue timeline a
+    start time of 24+ HOURS is never intended, so when a 3-part timecode reads
+    as an implausibly long duration (> 2 hours) AND its seconds are :00, it is
+    re-interpreted as MM:SS. Genuine sub-2-hour H:MM:SS values are untouched.
     """
     if value is None:
         return None
@@ -46,10 +53,15 @@ def parse_timecode(value: str) -> int | None:
             seconds = float(parts[1])
             return int(round((minutes * 60 + seconds) * 1000))
         elif len(parts) == 3:
-            hours = int(parts[0])
-            minutes = int(parts[1])
-            seconds = float(parts[2])
-            return int(round((hours * 3600 + minutes * 60 + seconds) * 1000))
+            a = int(parts[0])
+            b = int(parts[1])
+            c = float(parts[2])
+            hms_seconds = a * 3600 + b * 60 + c
+            # Spreadsheet artifact: absurdly long for audio + whole-minute (:00)
+            # almost certainly means the value was really MM:SS.
+            if hms_seconds > 7200 and c == 0:
+                return int(round((a * 60 + b) * 1000))
+            return int(round(hms_seconds * 1000))
     except (ValueError, IndexError):
         return None
     return None
@@ -185,6 +197,7 @@ def parse_csv(content: str) -> list[ParsedLine]:
                 pass
 
         effect = get(row, "effect") if col["effect"] is not None else ""
+        effect = effect.lower().strip()  # normalize to match preset keys + UI options
         el_voice = get(row, "elevenlabs") if col["elevenlabs"] is not None else ""
         cb_voice = get(row, "chatterbox") if col["chatterbox"] is not None else ""
 
@@ -280,7 +293,7 @@ def parse_json(content: str) -> list[ParsedLine]:
             except (ValueError, TypeError):
                 pass
 
-            effect = str(item.get("effect", "") or "")
+            effect = str(item.get("effect", "") or "").lower().strip()
 
             lines.append(ParsedLine(
                 line_number=n, character_name=char, text=clean,

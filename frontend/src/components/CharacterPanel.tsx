@@ -68,22 +68,31 @@ export default function CharacterPanel() {
         available = pv.map((v) => ({ voice_id: v.voice_id, name: v.name }));
       }
 
-      if (available.length === 0) {
+      const configs = useStore.getState().characterConfigs;
+
+      // Prefer the per-character voice the CSV supplied for this provider.
+      // Only fall back to round-robin for characters that don't have one.
+      const remembered = (cfg: any) =>
+        provider === 'elevenlabs' ? (cfg.el_voice_id || '') : (cfg.cb_voice_id || '');
+      const anyRemembered = configs.some((c) => remembered(c));
+
+      if (!anyRemembered && available.length === 0) {
         addLog({ level: 'warning', message: `No ${provider} voices available to assign. ${provider === 'elevenlabs' ? 'Check your API key.' : 'Is the Chatterbox engine running?'}` });
         setAutoFilling(false);
         return;
       }
 
-      const configs = useStore.getState().characterConfigs;
       configs.forEach((cfg, i) => {
-        const chosen = available[i % available.length];
+        const fromCsv = remembered(cfg);
+        const voiceId = fromCsv || (available.length ? available[i % available.length].voice_id : '');
         updateCharacterConfig(cfg.character_name, {
           tts_provider: provider,
-          voice_id: chosen.voice_id,
+          voice_id: voiceId,
           model_id: provider === 'elevenlabs' ? 'eleven_multilingual_v2' : '',
         });
       });
-      addLog({ level: 'success', message: `Assigned ${provider} voices to ${configs.length} characters` });
+      const usedCsv = anyRemembered ? ' (using CSV voices where provided)' : '';
+      addLog({ level: 'success', message: `Assigned ${provider} voices to ${configs.length} characters${usedCsv}` });
     } catch (e: any) {
       addLog({ level: 'error', message: `Auto-populate failed: ${e.message}` });
     }
@@ -207,7 +216,15 @@ function CharacterRow({ config, voices, providers, providerVoices, onLoadProvide
           className="input-field w-36 text-xs"
           value={currentProvider}
           onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onUpdate({ tts_provider: e.target.value, voice_id: '' })}
+          onChange={(e) => {
+            const newProvider = e.target.value;
+            // When switching providers, restore the remembered voice for that
+            // provider if the CSV supplied one (el_voice_id / cb_voice_id).
+            let nextVoice = '';
+            if (newProvider === 'elevenlabs') nextVoice = config.el_voice_id || '';
+            else if (newProvider === 'chatterbox') nextVoice = config.cb_voice_id || '';
+            onUpdate({ tts_provider: newProvider, voice_id: nextVoice });
+          }}
         >
           {providers.map((p) => (
             <option key={p.name} value={p.name}>{p.display_name}</option>

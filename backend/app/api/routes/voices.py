@@ -109,6 +109,8 @@ async def update_character_configs(
             temperature=cfg.temperature,
             seed=cfg.seed,
             language=cfg.language,
+            el_voice_id=getattr(cfg, "el_voice_id", "") or "",
+            cb_voice_id=getattr(cfg, "cb_voice_id", "") or "",
             effects_preset=cfg.effects_preset,
             effects_config=cfg.effects_config,
             volume_adjustment=cfg.volume_adjustment,
