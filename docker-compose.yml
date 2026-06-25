@@ -40,6 +40,10 @@ services:
       - UPLOAD_DIR=/app/uploads
       - OUTPUT_DIR=/app/outputs
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CHATTERBOX_URL=${CHATTERBOX_URL:-http://host.docker.internal:4123}
+      - XTTS_URL=${XTTS_URL:-http://host.docker.internal:5500}
+      - ORPHEUS_URL=${ORPHEUS_URL:-http://host.docker.internal:8899}
+      - KOKORO_URL=${KOKORO_URL:-http://host.docker.internal:8880}
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
@@ -72,6 +76,10 @@ services:
       - MAX_CONCURRENT_GENERATIONS=${MAX_CONCURRENT_GENERATIONS:-5}
       - UPLOAD_DIR=/app/uploads
       - OUTPUT_DIR=/app/outputs
+      - CHATTERBOX_URL=${CHATTERBOX_URL:-http://host.docker.internal:4123}
+      - XTTS_URL=${XTTS_URL:-http://host.docker.internal:5500}
+      - ORPHEUS_URL=${ORPHEUS_URL:-http://host.docker.internal:8899}
+      - KOKORO_URL=${KOKORO_URL:-http://host.docker.internal:8880}
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
@@ -117,6 +125,12 @@ services:
     restart: unless-stopped
     networks:
       - dialogueforge
+
+  # ── TTS sidecars are now separate — see tts-engines/docker-compose.yml ──
+  # Set URLs in .env to connect:
+  #   CHATTERBOX_URL=http://host.docker.internal:4123
+  #   ORPHEUS_URL=http://host.docker.internal:8899
+  #   KOKORO_URL=http://host.docker.internal:8880
 
 volumes:
   uploads:

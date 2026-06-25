@@ -1,63 +1,127 @@
 # DialogueForge
 
-A production-ready full-stack application for generating character dialogue audio using the ElevenLabs Text-to-Speech API.
-
-## Features
-
-- **Script Import**: CSV, TXT, and JSON dialogue script parsing
-- **Voice Assignment**: Per-character ElevenLabs voice/model configuration
-- **Audio Effects**: Radio, helmet, robot, telephone, and more via FFmpeg
-- **Batch Generation**: Concurrent TTS with rate limiting and retry
-- **Smart Caching**: Avoid duplicate API calls via content hashing
-- **Export Options**: Combined WAV, individual files, ZIP archives
-- **Timeline Editor**: Drag-and-drop dialogue arrangement
-- **Project Save/Load**: Persist all settings as .projectforge files
-- **Cost Estimation**: Pre-generation credit usage estimates
-- **Real-time Logs**: Live WebSocket generation status
+Generate character dialogue audio with multiple TTS engines — ElevenLabs (cloud), Chatterbox, Orpheus, Kokoro (local).
 
 ## Quick Start
 
 ```bash
-# 1. Clone and configure
+# 1. Start DialogueForge
 cp .env.example .env
-# Edit .env and add your ElevenLabs API key (or add via GUI)
+docker compose up --build -d
+# Open http://localhost
 
-# 2. Launch
-docker compose up --build
-
-# 3. Open
-# http://localhost
+# 2. Start TTS engines (separate terminal)
+cd tts-engines
+./start.sh kokoro          # CPU-friendly, starts fast
+# OR
+./start.sh chatterbox      # Best quality (needs GPU)
+# OR
+./start.sh orpheus         # Emotion control (needs GPU)
+# OR
+./start.sh                 # All engines
 ```
 
 ## Architecture
 
-| Service   | Port | Description              |
-|-----------|------|--------------------------|
-| Frontend  | 3000 | React + TypeScript + Vite|
-| Backend   | 8000 | FastAPI + Uvicorn        |
-| Redis     | 6379 | Job queue + caching      |
-| PostgreSQL| 5432 | Project/voice storage    |
-| Nginx     | 80   | Reverse proxy            |
+```
+┌─────────────┐       ┌───────────────────────────┐
+│   Browser   │──────▶│  DialogueForge (port 80)  │
+│             │       │  Nginx → Frontend/Backend  │
+└─────────────┘       └───────────┬───────────────┘
+                                  │ HTTP calls to TTS engines
+                    ┌─────────────┼─────────────┐
+                    ▼             ▼              ▼
+             ┌─────────┐  ┌──────────┐  ┌──────────┐
+             │ Kokoro   │  │Chatterbox│  │ Orpheus  │
+             │ :8880    │  │  :4123   │  │  :8899   │
+             │ (CPU)    │  │  (GPU)   │  │  (GPU)   │
+             └─────────┘  └──────────┘  └──────────┘
+```
+
+DialogueForge and TTS engines run as **separate docker-compose stacks**. This means:
+- DialogueForge starts instantly (no model downloads blocking startup)
+- Each TTS engine has its own Web UI for testing voices directly
+- You only run the engines you need
+- Engines can run on different machines
+
+## TTS Engines
+
+| Engine | Quality | Voice Cloning | GPU Required | Web UI |
+|--------|---------|---------------|-------------|--------|
+| **Chatterbox** | ★★★★★ | ✅ 5-sec clips | Recommended | http://localhost:4123 |
+| **Orpheus** | ★★★★☆ | ✅ Zero-shot | Yes | http://localhost:8899 |
+| **Kokoro** | ★★★★☆ | ❌ | No (CPU) | http://localhost:8880 |
+| **ElevenLabs** | ★★★★★ | ✅ | No | Cloud API |
+
+### Chatterbox (Recommended)
+- Beats ElevenLabs in blind tests (63.75% preference)
+- Voice cloning from 5 seconds of audio
+- Emotion/exaggeration control (0.0–2.0 slider)
+- Multilingual (23 languages with Chatterbox Multilingual)
+- ~5-7GB VRAM
+
+### Orpheus
+- Built on Llama 3B — LLM-quality speech understanding
+- Emotion tags: `[laughs]`, `[sighs]`, `[chuckles]`, `[gasps]`
+- 8 built-in voices, 8 languages
+- Zero-shot voice cloning
+- ~8GB VRAM
+
+### Kokoro
+- 82M parameters — runs on CPU
+- 26 built-in voices (US/British, male/female)
+- Fastest inference (~0.3s for any length)
+- No voice cloning
+- Highest MOS score (4.5) in benchmarks
+
+## Features
+
+- **Multi-Provider TTS**: Each character can use a different engine
+- **Script Import**: CSV, TXT, JSON dialogue parsing
+- **Voice Assignment**: Per-character voice/model configuration
+- **Audio Effects**: Radio, helmet, robot, telephone, etc.
+- **Batch Generation**: Concurrent TTS with rate limiting
+- **Smart Caching**: Content-hash deduplication
+- **Export**: Combined WAV, individual files, ZIP
+- **Project Save/Load**: .projectforge files
+- **No API key required** for local engines
+
+## Configuration
+
+Set TTS engine URLs in `.env` or the defaults will try `host.docker.internal`:
+
+```env
+CHATTERBOX_URL=http://host.docker.internal:4123
+ORPHEUS_URL=http://host.docker.internal:8899
+KOKORO_URL=http://host.docker.internal:8880
+```
+
+If running on Linux (where `host.docker.internal` doesn't work by default), use your machine's IP or add `extra_hosts` to docker-compose.yml.
 
 ## Sample Data
 
-A sample CSV is included at `samples/demo_script.csv`.
+Sample scripts in `samples/` (CSV, TXT, JSON).
 
-## API Endpoints
+## Script Format
 
-| Method | Path                  | Description              |
-|--------|----------------------|--------------------------|
-| POST   | /api/scripts/upload  | Upload dialogue script   |
-| GET    | /api/scripts/{id}    | Get parsed script        |
-| POST   | /api/generate        | Start batch generation   |
-| GET    | /api/jobs/{id}       | Job status               |
-| GET    | /api/voices          | List available voices    |
-| POST   | /api/voices/sync     | Sync from ElevenLabs     |
-| POST   | /api/effects/preview | Preview audio effect     |
-| POST   | /api/projects/save   | Save project             |
-| POST   | /api/projects/load   | Load project             |
-| GET    | /api/export/{job_id} | Download generated audio |
+**CSV** — required columns `Character` and `Dialogue`, plus optional columns (any order, case-insensitive):
 
-## Environment Variables
+```csv
+Character,Dialogue,Start,Pause,Volume,Effect
+Commander,"All units move in.",0:00,,0,radio
+Pilot,"Bandits at twelve o'clock!",0:04,,2,helmet
+Operator,"Target is down.",0:08,1.5,-2,
+```
 
-See `.env.example` for all configuration options.
+- **Start** — absolute placement on the combined timeline in `M:SS` format (e.g. `0:00`, `1:23`, `0:02.5`). When any line has a Start time, the combined export places clips at those exact times instead of back-to-back, leaving silence in the gaps. Lines without a Start time fall back to sequential placement.
+- **Pause** — seconds of silence after the line (e.g. `1.5` or `0:02`).
+- **Volume** — per-line volume adjustment in dB (e.g. `-3`, `2.5`). Added on top of the character's volume setting.
+- **Effect** — per-line effect preset override (e.g. `radio`, `glitch`). Overrides the character's default effect for that line.
+
+**TXT** — `Character: Dialogue`, with an optional leading timecode:
+```
+[0:15] Commander: All units move in.
+Pilot: Bandits at twelve o'clock!
+```
+
+**JSON** — array of objects with keys `character`, `dialogue`, and optional `start`, `pause`, `volume`, `effect`.

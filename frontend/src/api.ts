@@ -60,6 +60,36 @@ export async function deleteApiKey(keyId: string) {
   await api.delete(`/voices/apikey/${keyId}`);
 }
 
+// --- Providers ---
+export interface TTSProviderInfo {
+  name: string;
+  display_name: string;
+  requires_api_key: boolean;
+  supports_voice_cloning: boolean;
+}
+
+export interface ProviderVoice {
+  voice_id: string;
+  name: string;
+  category: string;
+  description: string;
+}
+
+export async function listProviders(): Promise<TTSProviderInfo[]> {
+  const { data } = await api.get('/providers/');
+  return data;
+}
+
+export async function getProviderVoices(providerName: string): Promise<ProviderVoice[]> {
+  const { data } = await api.get(`/providers/${providerName}/voices`);
+  return data;
+}
+
+export async function validateProvider(providerName: string): Promise<{ valid: boolean; message: string }> {
+  const { data } = await api.post(`/providers/${providerName}/validate`);
+  return data;
+}
+
 // --- Generation ---
 export async function startGeneration(
   projectId: string, scriptId: string, apiKey: string, exportMode: string

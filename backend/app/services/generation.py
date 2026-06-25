@@ -12,13 +12,13 @@ from pydub import AudioSegment
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.audio.effects import apply_effects, normalize_loudness, concatenate_audio, get_audio_duration_ms
+from app.audio.effects import apply_effects, normalize_loudness, concatenate_audio, concatenate_audio_timeline, get_audio_duration_ms
 from app.core.config import get_settings
 from app.models.database import (
     CachedAudio, CharacterVoiceConfig, DialogueLine, GenerationJob,
     LineResult, JobStatus, Script
 )
-from app.services.elevenlabs import ElevenLabsService
+from app.services.tts_providers import get_provider, BaseTTSProvider, TTSRequest, init_providers
 
 logger = structlog.get_logger()
 
@@ -27,12 +27,34 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[^\w\-]', '_', name).strip('_')
 
 
+def build_file_stem(character_name: str, text: str, line_number: int) -> str:
+    """Build a filename stem in the format: Name_first20charactersOfText
+
+    The line number is appended as a short suffix to guarantee uniqueness
+    when two lines start with the same 20 characters.
+    """
+    safe_char = sanitize_filename(character_name)
+    # First 20 characters of the dialogue text, sanitized
+    snippet = sanitize_filename(text[:20])
+    if snippet:
+        stem = f"{safe_char}_{snippet}"
+    else:
+        stem = safe_char
+    # Append line number to avoid collisions between identical snippets
+    return f"{stem}_{line_number:03d}"
+
+
 class GenerationService:
     def __init__(self, db: AsyncSession, api_key: str | None = None):
         self.db = db
         self.settings = get_settings()
-        self.tts = ElevenLabsService(api_key)
+        self.api_key = api_key
         self.log_callbacks: list = []
+        # Ensure providers are registered (worker process may not have run startup)
+        try:
+            get_provider("elevenlabs")
+        except ValueError:
+            init_providers(api_key=api_key or "")
 
     def _log(self, level: str, message: str, **kwargs):
         entry = {"timestamp": datetime.utcnow().isoformat(), "level": level, "message": message, **kwargs}
@@ -60,7 +82,8 @@ class GenerationService:
         for line in lines:
             cfg = config_map.get(line.character_name)
             if cfg:
-                cache_key = ElevenLabsService.compute_cache_key(
+                cache_key = BaseTTSProvider.compute_cache_key(
+                    cfg.tts_provider or "elevenlabs",
                     line.text, cfg.voice_id, cfg.model_id,
                     cfg.stability, cfg.similarity_boost, cfg.style
                 )
@@ -118,7 +141,7 @@ class GenerationService:
             output_dir = os.path.join(self.settings.output_dir, str(job_id))
             os.makedirs(output_dir, exist_ok=True)
 
-            generated_files: list[tuple[int, str]] = []
+            generated_files: list[dict] = []
 
             # Generate each line
             for line in lines:
@@ -140,28 +163,38 @@ class GenerationService:
                 await self.db.commit()
 
                 try:
+                    # Resolve TTS provider for this character
+                    provider_name = cfg.tts_provider or "elevenlabs"
+                    try:
+                        provider = get_provider(provider_name)
+                    except ValueError:
+                        # Fall back to elevenlabs
+                        provider = get_provider("elevenlabs")
+
                     # Check cache
-                    cache_key = ElevenLabsService.compute_cache_key(
-                        line.text, cfg.voice_id, cfg.model_id,
+                    cache_key = BaseTTSProvider.compute_cache_key(
+                        provider_name, line.text, cfg.voice_id, cfg.model_id,
                         cfg.stability, cfg.similarity_boost, cfg.style
                     )
                     cached = (await self.db.execute(
                         select(CachedAudio).where(CachedAudio.cache_key == cache_key)
                     )).scalar_one_or_none()
 
-                    safe_char = sanitize_filename(line.character_name)
-                    raw_path = os.path.join(output_dir, f"{safe_char}_{line.line_number:03d}_raw.wav")
-                    final_path = os.path.join(output_dir, f"{safe_char}_{line.line_number:03d}.{output_format}")
+                    file_stem = build_file_stem(line.character_name, line.text, line.line_number)
+                    raw_path = os.path.join(output_dir, f"{file_stem}_raw.wav")
+                    final_path = os.path.join(output_dir, f"{file_stem}.{output_format}")
 
                     if cached and os.path.exists(cached.audio_path):
                         self._log("info", f"Cache hit for line {line.line_number}",
                                  line_number=line.line_number, character=line.character_name)
                         raw_path = cached.audio_path
                     else:
-                        # Generate via TTS
-                        self._log("info", f"Generating line {line.line_number}: {line.character_name}",
-                                 line_number=line.line_number, character=line.character_name)
-                        audio_bytes = await self.tts.generate_speech(
+                        # Generate via TTS provider
+                        self._log("info", f"Generating line {line.line_number}: {line.character_name} ({provider_name})",
+                                 line_number=line.line_number, character=line.character_name,
+                                 provider=provider_name)
+
+                        tts_request = TTSRequest(
                             text=line.text,
                             voice_id=cfg.voice_id,
                             model_id=cfg.model_id,
@@ -169,17 +202,26 @@ class GenerationService:
                             similarity_boost=cfg.similarity_boost,
                             style=cfg.style,
                             use_speaker_boost=cfg.use_speaker_boost,
+                            exaggeration=getattr(cfg, "exaggeration", 0.5) or 0.5,
+                            cfg_weight=getattr(cfg, "cfg_weight", 0.5) or 0.5,
+                            temperature=getattr(cfg, "temperature", 0.8) or 0.8,
+                            seed=getattr(cfg, "seed", 0) or 0,
+                            language=getattr(cfg, "language", "en") or "en",
                         )
+                        audio_bytes = await provider.generate_speech(tts_request)
+                        audio_fmt = provider.audio_format()
 
-                        # Save raw audio (ElevenLabs returns mp3)
-                        mp3_path = raw_path.replace('.wav', '.mp3')
-                        with open(mp3_path, 'wb') as f:
-                            f.write(audio_bytes)
-
-                        # Convert to WAV
-                        seg = AudioSegment.from_file(mp3_path, format="mp3")
-                        seg.export(raw_path, format="wav")
-                        os.remove(mp3_path)
+                        # Save raw audio and convert to WAV if needed
+                        if audio_fmt == "wav":
+                            with open(raw_path, 'wb') as f:
+                                f.write(audio_bytes)
+                        else:
+                            tmp_path = raw_path.replace('.wav', f'.{audio_fmt}')
+                            with open(tmp_path, 'wb') as f:
+                                f.write(audio_bytes)
+                            seg = AudioSegment.from_file(tmp_path, format=audio_fmt)
+                            seg.export(raw_path, format="wav")
+                            os.remove(tmp_path)
 
                         # Cache it
                         self.db.add(CachedAudio(
@@ -191,21 +233,27 @@ class GenerationService:
                         ))
                         await self.db.commit()
 
-                    # Apply effects
+                    # Apply effects — priority: per-line CSV override > inline directive > character default
                     effects_preset = cfg.effects_preset or "none"
-                    # Check for directive-based effects
+                    # Check for directive-based effects (inline [tags])
                     for directive in (line.directives or []):
                         if directive in ("radio", "helmet", "robot", "telephone", "megaphone",
-                                        "vhs", "corrupted_ai", "deep_space", "glitch", "alien"):
+                                        "vhs", "corrupted_ai", "deep_space", "glitch", "alien",
+                                        "whisper", "underwater", "demonic"):
                             effects_preset = directive
+                    # Per-line effect override from CSV column wins if set
+                    line_effect = getattr(line, "effect_override", "") or ""
+                    if line_effect:
+                        effects_preset = line_effect
 
-                    processed_path = os.path.join(output_dir, f"{safe_char}_{line.line_number:03d}_proc.wav")
+                    processed_path = os.path.join(output_dir, f"{file_stem}_proc.wav")
                     await apply_effects(raw_path, processed_path, effects_preset, cfg.effects_config)
 
-                    # Volume adjustment
-                    if cfg.volume_adjustment != 0:
+                    # Volume adjustment: character default + per-line CSV adjustment (additive)
+                    total_volume_db = (cfg.volume_adjustment or 0) + (getattr(line, "volume_adjust_db", 0) or 0)
+                    if total_volume_db != 0:
                         seg = AudioSegment.from_file(processed_path)
-                        seg = seg + cfg.volume_adjustment
+                        seg = seg + total_volume_db
                         seg.export(processed_path, format="wav")
 
                     # Normalize
@@ -227,7 +275,12 @@ class GenerationService:
                     line_result.duration_ms = duration
                     job.completed_lines += 1
 
-                    generated_files.append((line.line_number, final_path))
+                    generated_files.append({
+                        "line_number": line.line_number,
+                        "path": final_path,
+                        "start_ms": getattr(line, "start_time_ms", None),
+                        "pause_after_ms": getattr(line, "pause_after_ms", 0) or 0,
+                    })
 
                     self._log("info", f"Completed line {line.line_number}", line_number=line.line_number,
                              character=line.character_name, duration_ms=duration)
@@ -242,14 +295,23 @@ class GenerationService:
                 await self.db.commit()
 
             # Export
-            generated_files.sort(key=lambda x: x[0])
-            output_paths = [f for _, f in generated_files]
+            generated_files.sort(key=lambda x: x["line_number"])
+            output_paths = [f["path"] for f in generated_files]
 
             if export_mode == "combined" and output_paths:
                 combined_path = os.path.join(output_dir, f"combined.{output_format}")
-                await concatenate_audio(output_paths, combined_path, silence_ms)
+                # If any line specifies a start time, use timeline placement;
+                # otherwise fall back to simple sequential concatenation.
+                has_timeline = any(f["start_ms"] is not None for f in generated_files)
+                if has_timeline:
+                    await concatenate_audio_timeline(
+                        generated_files, combined_path, silence_ms
+                    )
+                    self._log("info", "Combined audio created (timeline mode)", path=combined_path)
+                else:
+                    await concatenate_audio(output_paths, combined_path, silence_ms)
+                    self._log("info", "Combined audio created", path=combined_path)
                 job.output_path = combined_path
-                self._log("info", "Combined audio created", path=combined_path)
 
             elif export_mode == "zip" and output_paths:
                 zip_path = os.path.join(output_dir, "dialogue_export.zip")

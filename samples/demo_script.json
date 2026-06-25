@@ -1,15 +1,14 @@
-{
-  "title": "Orbital Descent - Scene 1",
-  "lines": [
-    { "character": "Commander", "text": "All units, prepare for orbital insertion." },
-    { "character": "Pilot", "text": "[radio] Copy that Commander. Adjusting trajectory now." },
-    { "character": "Operator", "text": "Radar shows clear path. No debris detected." },
-    { "character": "Commander", "text": "Good. Pilot, take us in. [pause:1.5] Smooth and steady." },
-    { "character": "AI_System", "text": "[robot] Warning. Atmospheric friction exceeding nominal parameters." },
-    { "character": "Pilot", "text": "[radio] Compensating. Hull temperature is within tolerance." },
-    { "character": "Operator", "text": "Picking up a signal on the surface. [pause:0.8] Unidentified." },
-    { "character": "Commander", "text": "[angry] Can you get a fix on it?" },
-    { "character": "Operator", "text": "Working on it. Signal is… intermittent." },
-    { "character": "AI_System", "text": "[robot] Landing zone secured. Touchdown in thirty seconds." }
-  ]
-}
+[
+  {"character": "Commander", "dialogue": "All units move in. We have a narrow window.", "start": "0:00", "effect": "radio"},
+  {"character": "Pilot", "dialogue": "Bandits at twelve o'clock! Engaging evasive maneuvers.", "start": "0:04", "effect": "helmet"},
+  {"character": "Operator", "dialogue": "Radar contact confirmed. Three bogeys inbound.", "start": "0:08", "volume": -2, "effect": "radio"},
+  {"character": "Commander", "dialogue": "Hold formation. Wait for my signal.", "start": "0:12", "effect": "radio"},
+  {"character": "Pilot", "dialogue": "Copy that, Commander. Holding steady.", "start": "0:15", "effect": "helmet"},
+  {"character": "Operator", "dialogue": "Signal interference detected. Switching to backup frequency.", "start": "0:19", "volume": -3, "effect": "glitch"},
+  {"character": "Commander", "dialogue": "All units, go loud! Weapons free!", "start": "0:24", "volume": 2, "effect": "radio"},
+  {"character": "Pilot", "dialogue": "Fox two! Fox two! Missile away!", "start": "0:28", "volume": 3, "effect": "helmet"},
+  {"character": "Operator", "dialogue": "Direct hit confirmed. Target is down.", "start": "0:33", "effect": "radio"},
+  {"character": "Commander", "dialogue": "Good work. All units rally at checkpoint Bravo.", "start": "0:37", "effect": "radio"},
+  {"character": "Pilot", "dialogue": "Acknowledged. Heading to Bravo. Fuel is getting low.", "start": "0:42", "effect": "helmet"},
+  {"character": "Operator", "dialogue": "Command, this is Overwatch. Mission success.", "start": "0:48", "effect": "megaphone"}
+]

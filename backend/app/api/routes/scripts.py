@@ -60,6 +60,9 @@ async def upload_script(
             raw_text=pl.raw_text,
             directives=pl.directives,
             pause_after_ms=pl.pause_after_ms,
+            start_time_ms=pl.start_time_ms,
+            volume_adjust_db=pl.volume_adjust_db,
+            effect_override=pl.effect_override,
         )
         db.add(dl)
         db_lines.append(dl)

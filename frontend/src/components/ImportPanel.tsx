@@ -52,12 +52,18 @@ export default function ImportPanel() {
       // Build default configs for discovered characters
       const configs = result.characters.map((name) => ({
         character_name: name,
+        tts_provider: 'elevenlabs',
         voice_id: '',
         model_id: 'eleven_multilingual_v2',
         stability: 0.5,
         similarity_boost: 0.75,
         style: 0.0,
         use_speaker_boost: true,
+        exaggeration: 0.5,
+        cfg_weight: 0.5,
+        temperature: 0.8,
+        seed: 0,
+        language: 'en',
         effects_preset: 'none',
         effects_config: {},
         volume_adjustment: 0.0,

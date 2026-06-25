@@ -119,3 +119,92 @@ class TestElevenLabsService:
         key = ElevenLabsService.compute_cache_key("text", "vid", "mid", 0.5, 0.75, 0.0)
         assert isinstance(key, str)
         assert len(key) == 64  # SHA-256 hex digest
+
+
+# ---- Timecode + Timeline Tests ----
+
+from app.services.script_parser import parse_timecode, format_timecode, parse_csv, parse_txt, parse_json
+
+
+class TestTimecode:
+    def test_parse_mss(self):
+        assert parse_timecode("0:00") == 0
+        assert parse_timecode("1:23") == 83000
+        assert parse_timecode("0:05") == 5000
+
+    def test_parse_fractional(self):
+        assert parse_timecode("0:02.5") == 2500
+
+    def test_parse_hms(self):
+        assert parse_timecode("1:02:03") == 3723000
+
+    def test_parse_plain_seconds(self):
+        assert parse_timecode("12") == 12000
+
+    def test_parse_empty_returns_none(self):
+        assert parse_timecode("") is None
+        assert parse_timecode("   ") is None
+        assert parse_timecode(None) is None
+
+    def test_parse_invalid_returns_none(self):
+        assert parse_timecode("abc") is None
+
+    def test_format_roundtrip(self):
+        assert format_timecode(0) == "0:00"
+        assert format_timecode(83000) == "1:23"
+        assert format_timecode(5000) == "0:05"
+
+
+class TestCSVOptionalColumns:
+    def test_start_column(self):
+        csv = "Character,Dialogue,Start\nA,Hi,0:05\nB,Yo,0:10"
+        lines = parse_csv(csv)
+        assert lines[0].start_time_ms == 5000
+        assert lines[1].start_time_ms == 10000
+
+    def test_all_columns(self):
+        csv = "Character,Dialogue,Start,Volume,Effect\nA,Hi,0:05,-3,radio"
+        lines = parse_csv(csv)
+        assert lines[0].start_time_ms == 5000
+        assert lines[0].volume_adjust_db == -3.0
+        assert lines[0].effect_override == "radio"
+
+    def test_backward_compat_two_column(self):
+        csv = "Character,Dialogue\nA,Hi\nB,Bye"
+        lines = parse_csv(csv)
+        assert len(lines) == 2
+        assert lines[0].start_time_ms is None
+        assert lines[0].volume_adjust_db == 0.0
+
+    def test_column_order_independence(self):
+        csv = "Effect,Character,Start,Dialogue\nradio,A,0:03,Hello"
+        lines = parse_csv(csv)
+        assert lines[0].character_name == "A"
+        assert lines[0].text == "Hello"
+        assert lines[0].start_time_ms == 3000
+        assert lines[0].effect_override == "radio"
+
+
+class TestTimelineConcat:
+    def test_timeline_placement(self, tmp_path):
+        import asyncio
+        from pydub import AudioSegment
+        from app.audio.effects import concatenate_audio_timeline, get_audio_duration_ms
+
+        # Make three 1-second clips
+        paths = []
+        for i in range(3):
+            p = str(tmp_path / f"c{i}.wav")
+            AudioSegment.silent(duration=1000, frame_rate=44100).export(p, format="wav")
+            paths.append(p)
+
+        clips = [
+            {"path": paths[0], "start_ms": 0, "pause_after_ms": 0},
+            {"path": paths[1], "start_ms": 5000, "pause_after_ms": 0},
+            {"path": paths[2], "start_ms": 10000, "pause_after_ms": 0},
+        ]
+        out = str(tmp_path / "out.wav")
+        asyncio.run(concatenate_audio_timeline(clips, out, silence_ms=500))
+        dur = get_audio_duration_ms(out)
+        # Last clip starts at 10s, lasts 1s -> ~11s total
+        assert 10900 <= dur <= 11100, dur
